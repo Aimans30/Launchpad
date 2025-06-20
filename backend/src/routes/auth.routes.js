@@ -4,7 +4,7 @@ const authController = require('../controllers/auth.controller');
 const { validateAuth } = require('../middleware/validate');
 
 // GitHub OAuth routes
-router.get('/github/login', authController.githubLogin);
+router.get('/github', authController.githubLogin);
 router.get('/github/callback', authController.githubCallback);
 
 // User authentication routes

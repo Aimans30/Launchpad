@@ -3,12 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import GitHubRepoSelector from "@/components/GitHubRepoSelector";
 
 export default function NewProject() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   
+  const { isAuthenticated } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
     repository: "",
@@ -17,6 +20,8 @@ export default function NewProject() {
     buildCommand: "",
     outputDirectory: "",
   });
+  
+  const [showRepoSelector, setShowRepoSelector] = useState(false);
 
   const frameworks = [
     { id: "nextjs", name: "Next.js", buildCommand: "npm run build", outputDirectory: ".next" },
@@ -52,17 +57,33 @@ export default function NewProject() {
     setError("");
     
     try {
-      // In a real implementation, this would call the API to create a new project
-      console.log("Creating project:", formData);
+      const token = localStorage.getItem("auth_token");
+      if (!token) {
+        throw new Error("You must be logged in to create a project");
+      }
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Call the API to create a new project
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/projects`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
       
-      // Redirect to the project page (using a fake ID for now)
-      router.push("/projects/new_project_123");
-    } catch (err) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create project");
+      }
+      
+      const data = await response.json();
+      
+      // Redirect to the project page
+      router.push(`/projects/${data.project.id}`);
+    } catch (err: any) {
       console.error("Error creating project:", err);
-      setError("Failed to create project. Please try again.");
+      setError(err.message || "Failed to create project. Please try again.");
       setIsLoading(false);
     }
   };
@@ -116,21 +137,47 @@ export default function NewProject() {
               />
             </div>
             
-            {/* Repository */}
+            {/* Repository URL */}
             <div>
               <label htmlFor="repository" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Git Repository
+                Repository URL
               </label>
-              <input
-                type="text"
-                name="repository"
-                id="repository"
-                required
-                value={formData.repository}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-black text-gray-900 dark:text-white shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white focus:border-transparent"
-                placeholder="https://github.com/username/repo"
-              />
+              <div className="mt-1 flex">
+                <input
+                  type="text"
+                  name="repository"
+                  id="repository"
+                  required
+                  value={formData.repository}
+                  onChange={handleChange}
+                  className="block w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-black text-gray-900 dark:text-white shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white focus:border-transparent font-mono"
+                  placeholder="https://github.com/username/repo"
+                />
+                {isAuthenticated && (
+                  <button
+                    type="button"
+                    onClick={() => setShowRepoSelector(!showRepoSelector)}
+                    className="ml-2 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    {showRepoSelector ? "Hide" : "Browse"}
+                  </button>
+                )}
+              </div>
+              {showRepoSelector && (
+                <div className="mt-3">
+                  <GitHubRepoSelector 
+                    onSelectRepo={(repo) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        name: prev.name || repo.name,
+                        repository: repo.html_url,
+                        branch: repo.default_branch
+                      }));
+                      setShowRepoSelector(false);
+                    }}
+                  />
+                </div>
+              )}
             </div>
             
             {/* Branch */}

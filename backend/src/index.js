@@ -88,6 +88,14 @@ try {
   console.log('Project routes not loaded:', error.message);
 }
 
+try {
+  const githubRoutes = require('./routes/github.routes');
+  app.use('/api/github', githubRoutes);
+  console.log('GitHub routes loaded');
+} catch (error) {
+  console.log('GitHub routes not loaded:', error.message);
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });

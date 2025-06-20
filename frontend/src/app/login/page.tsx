@@ -3,9 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Login() {
   const router = useRouter();
+  const { githubLogin } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -14,12 +16,8 @@ export default function Login() {
     setError("");
     
     try {
-      // In a real implementation, this would redirect to the backend auth endpoint
-      // which would then redirect to GitHub OAuth
-      window.location.href = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/auth/github`;
-      
+      githubLogin();
       // Note: The page will redirect, so the code below won't execute
-      // This is just for demonstration purposes
     } catch (err) {
       console.error("Login error:", err);
       setError("Failed to authenticate with GitHub. Please try again.");

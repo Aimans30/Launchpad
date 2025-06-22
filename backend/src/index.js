@@ -10,11 +10,12 @@ const path = require('path');
 // Initialize Firebase Admin SDK
 if (process.env.NODE_ENV !== 'test') {
   try {
-    // Initialize Firebase Admin with application default credentials
+    // Initialize Firebase Admin with service account credentials
+    const serviceAccountPath = path.resolve(__dirname, '../firebase-service-account.json');
+    console.log('Loading Firebase service account from:', serviceAccountPath);
+    
     admin.initializeApp({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      apiKey: process.env.FIREBASE_API_KEY,
-      authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+      credential: admin.credential.cert(serviceAccountPath)
     });
     
     console.log('Firebase Admin SDK initialized successfully');

@@ -15,7 +15,7 @@ const supabase = createClient(
  */
 exports.githubLogin = (req, res) => {
   // Use the callback URL from environment variables
-  const redirectUrl = process.env.CALLBACK_URL || 'https://launchpad-4a4ac.firebaseapp.com/__/auth/handler';
+  const redirectUrl = process.env.CALLBACK_URL;
   console.log('Redirecting to GitHub with callback URL:', redirectUrl);
   
   // GitHub OAuth parameters
@@ -52,7 +52,7 @@ exports.githubCallback = async (req, res) => {
         client_id: process.env.GITHUB_CLIENT_ID,
         client_secret: process.env.GITHUB_CLIENT_SECRET,
         code,
-        redirect_uri: process.env.CALLBACK_URL || 'https://launchpad-4a4ac.firebaseapp.com/__/auth/handler'
+        redirect_uri: process.env.CALLBACK_URL
       },
       headers: {
         accept: 'application/json'

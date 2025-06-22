@@ -1,17 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Settings() {
-  // Mock user data
+  // Get actual user data from AuthContext
+  const { user: authUser, isLoading: authLoading } = useAuth();
+  
+  // Initialize with empty values that will be replaced once data loads
   const [user, setUser] = useState({
-    name: "John Doe",
-    email: "john@example.com",
-    avatar: "https://ui-avatars.com/api/?name=John+Doe&background=0D8ABC&color=fff",
-    githubUsername: "johndoe",
-    createdAt: "2023-01-15T10:00:00Z",
+    name: "",
+    email: "",
+    avatar: "",
+    githubUsername: "",
+    githubId: "",
+    createdAt: "",
   });
+  
+  // Update user data when authUser changes
+  useEffect(() => {
+    if (authUser) {
+      console.log('Settings user data:', authUser);
+      setUser({
+        name: authUser.name || "",
+        email: authUser.email || "",
+        avatar: authUser.avatar_url || "",
+        githubUsername: authUser.github_username || "",
+        githubId: authUser.github_id || "",
+        createdAt: authUser.created_at || "",
+      });
+      
+      // Update form data too
+      setFormData({
+        name: authUser.name || "",
+        email: authUser.email || "",
+      });
+    }
+  }, [authUser]);
 
   // Mock settings
   const [settings, setSettings] = useState({
@@ -94,14 +120,29 @@ export default function Settings() {
     }
   };
 
-  // Format date for display
+  // Format date for display with validation
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }).format(date);
+    if (!dateString) {
+      return 'N/A';
+    }
+    
+    try {
+      const date = new Date(dateString);
+      
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return 'N/A';
+      }
+      
+      return new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }).format(date);
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      return 'N/A';
+    }
   };
 
   return (

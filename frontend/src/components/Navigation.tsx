@@ -1,19 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Navigation() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   
-  // Mock user data - in a real app this would come from an auth context
-  const user = {
-    name: "John Doe",
-    email: "john@example.com",
-    avatar: "https://ui-avatars.com/api/?name=John+Doe&background=0D8ABC&color=fff"
-  };
+  // Get user data from AuthContext
+  const { user, logout } = useAuth();
+  
+  // Use state to handle client-side rendering
+  const [mounted, setMounted] = useState(false);
+  
+  // Only run this effect on the client side
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  // Get user display name with fallbacks
+  const displayName = mounted ? (user?.name || user?.github_username || 'User') : 'User';
+  
+  // Generate avatar URL with multiple fallbacks
+  const avatarUrl = mounted && user ? (
+    // Priority 1: Direct avatar URL if available
+    user.avatar_url || 
+    // Priority 2: GitHub username-based avatar
+    (user.github_username ? `https://github.com/${user.github_username}.png` : 
+    // Priority 3: GitHub ID-based avatar
+    (user.github_id ? `https://avatars.githubusercontent.com/u/${user.github_id}` : 
+    // Priority 4: Generate avatar from name
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=0D8ABC&color=fff`))
+  ) : `https://ui-avatars.com/api/?name=User&background=0D8ABC&color=fff`;
+    
+  // Debug user data
+  useEffect(() => {
+    if (mounted && user) {
+      console.log('Navigation component user data:', {
+        name: user.name,
+        github_username: user.github_username,
+        avatar_url: user.avatar_url ? 'Present' : 'Not present'
+      });
+    }
+  }, [mounted, user]);
 
   const isActive = (path: string) => {
     return pathname === path || pathname?.startsWith(path + '/');
@@ -90,18 +121,18 @@ export default function Navigation() {
               <div>
                 <img
                   className="inline-block h-9 w-9 rounded-full"
-                  src={user.avatar}
+                  src={avatarUrl}
                   alt="User avatar"
                 />
               </div>
               <div className="ml-3">
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</p>
-                <Link
-                  href="/logout"
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{displayName}</p>
+                <button
+                  onClick={logout}
                   className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white"
                 >
                   Sign out
-                </Link>
+                </button>
               </div>
             </div>
           </div>
@@ -160,19 +191,21 @@ export default function Navigation() {
               <div>
                 <img
                   className="inline-block h-10 w-10 rounded-full"
-                  src={user.avatar}
+                  src={avatarUrl}
                   alt="User avatar"
                 />
               </div>
               <div className="ml-3">
-                <p className="text-base font-medium text-gray-900 dark:text-white">{user.name}</p>
-                <Link
-                  href="/logout"
+                <p className="text-base font-medium text-gray-900 dark:text-white">{displayName}</p>
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    logout();
+                  }}
                   className="text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white"
-                  onClick={() => setIsOpen(false)}
                 >
                   Sign out
-                </Link>
+                </button>
               </div>
             </div>
           </div>

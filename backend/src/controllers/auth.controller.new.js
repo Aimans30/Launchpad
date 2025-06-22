@@ -1,8 +1,8 @@
 const admin = require('firebase-admin');
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+const querystring = require('querystring');
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 
 // Initialize Supabase Client
 const supabase = createClient(
@@ -159,62 +159,31 @@ exports.getCurrentUser = async (req, res) => {
     const tokenPayloadKeys = Object.keys(decodedToken);
     console.log('Token payload structure:', tokenPayloadKeys);
     
-    // Get GitHub data with detailed logging
+    // Get GitHub data
     const firebaseData = decodedToken.firebase || {};
-    console.log('Firebase data structure:', JSON.stringify(decodedToken, null, 2).substring(0, 500) + '...');
-    
     if (Object.keys(firebaseData).length > 0) {
       console.log('Firebase auth data available:', Object.keys(firebaseData));
-    } else {
-      console.log('Firebase auth data not found in token');
     }
     
-    // Extract identities with detailed logging
     const identities = firebaseData.identities || {};
     if (Object.keys(identities).length > 0) {
-      console.log('Firebase identities found:', JSON.stringify(identities));
-    } else {
-      console.log('No identities found in Firebase data');
+      console.log('Firebase identities:', Object.keys(identities));
     }
     
-    // Try multiple paths to extract GitHub ID
-    let githubId = null;
-    
-    // Method 1: Through firebase.identities
-    if (identities && identities['github.com'] && identities['github.com'].length > 0) {
-      githubId = identities['github.com'][0];
-      console.log('GitHub ID found through identities:', githubId);
+    const hasGithubIdentity = identities && identities['github.com'] && identities['github.com'].length > 0;
+    if (hasGithubIdentity) {
+      console.log('GitHub identity found');
     }
     
-    // Method 2: Through firebase.sign_in_attributes
     const githubData = firebaseData.sign_in_attributes || {};
-    console.log('GitHub data from sign_in_attributes:', githubData);
-    
-    if (!githubId && githubData.id) {
-      githubId = String(githubData.id); // Ensure it's a string
-      console.log('GitHub ID found through sign_in_attributes:', githubId);
-    }
-    
-    // Method 3: Through provider_data array (sometimes present)
-    if (!githubId && decodedToken.provider_data && Array.isArray(decodedToken.provider_data)) {
-      const githubProvider = decodedToken.provider_data.find(p => p.providerId === 'github.com');
-      if (githubProvider && githubProvider.uid) {
-        githubId = githubProvider.uid;
-        console.log('GitHub ID found through provider_data:', githubId);
-      }
-    }
-    
-    // Method 4: Directly from token root
-    if (!githubId && decodedToken.github_id) {
-      githubId = decodedToken.github_id;
-      console.log('GitHub ID found directly in token root:', githubId);
-    }
+    console.log('GitHub data from token:', githubData);
     
     // Extract user details
     const name = decodedToken.name || githubData.name || 'GitHub User';
     const email = decodedToken.email || githubData.email || null;
-    const picture = decodedToken.picture || githubData.avatar_url || githubData.picture || null;
-    const githubUsername = githubData.login || decodedToken.github_username || decodedToken.githubUsername || null;
+    const picture = decodedToken.picture || githubData.picture || githubData.avatar_url || null;
+    const githubUsername = githubData.login || null;
+    const githubId = identities && identities['github.com'] ? identities['github.com'][0] : null;
     
     console.log('Extracted user info:', {
       name,
@@ -307,22 +276,17 @@ exports.getCurrentUser = async (req, res) => {
       }
     }
     
-    // Create a new user if not found
+    // 4. Create a new user if not found
     if (!user) {
-      console.log('No user found, creating new user');
+      console.log('No user found in Supabase, creating new user');
       
       // Generate a UUID for the new user
-      const userId = uuidv4();
+      const uuid = crypto.randomUUID();
+      console.log('Generated UUID for new user:', uuid);
       
-      // Create new user object with detailed logging of each field
-      console.log('GitHub ID for new user:', githubId);
-      console.log('GitHub Username for new user:', githubUsername);
-      console.log('Name for new user:', name);
-      console.log('Email for new user:', email ? '(email present)' : '(no email)');
-      console.log('Avatar URL for new user:', picture ? '(avatar present)' : '(no avatar)');
-      
-      const newUser = {
-        id: userId,
+      // Create the user data
+      const userData = {
+        id: uuid,
         firebase_uid: uid,
         github_id: githubId,
         github_username: githubUsername,
@@ -333,64 +297,36 @@ exports.getCurrentUser = async (req, res) => {
         updated_at: new Date().toISOString()
       };
       
-      console.log('Creating new user with data:', JSON.stringify(newUser, (key, value) => {
-        // Mask email for privacy in logs
-        if (key === 'email' && value) return '(email present)';
-        return value;
-      }, 2));
+      console.log('Creating new user with data:', {
+        id: userData.id,
+        firebase_uid: userData.firebase_uid,
+        github_id: userData.github_id,
+        github_username: userData.github_username,
+        name: userData.name,
+        email: userData.email
+      });
       
-      // Insert into database
-      const { data: insertedUser, error: insertError } = await supabase
-        .from('users')
-        .insert([newUser])
-        .select();
-        
-      if (insertError) {
-        console.error('Error creating user:', insertError);
-        return res.status(500).json({ error: 'Error creating user' });
-      }
-      
-      console.log('User created successfully:', insertedUser ? 'User data returned' : 'No data returned');
-      user = newUser;
-    } else {
-      // If user exists, check if we need to update GitHub data
-      const updates = {};
-      let needsUpdate = false;
-      
-      if (githubId && (!user.github_id || user.github_id !== githubId)) {
-        console.log(`Updating github_id from ${user.github_id || 'null'} to ${githubId}`);
-        updates.github_id = githubId;
-        needsUpdate = true;
-      }
-      
-      if (githubUsername && (!user.github_username || user.github_username !== githubUsername)) {
-        console.log(`Updating github_username from ${user.github_username || 'null'} to ${githubUsername}`);
-        updates.github_username = githubUsername;
-        needsUpdate = true;
-      }
-      
-      if (picture && (!user.avatar_url || user.avatar_url !== picture)) {
-        console.log('Updating avatar_url');
-        updates.avatar_url = picture;
-        needsUpdate = true;
-      }
-      
-      if (needsUpdate) {
-        updates.updated_at = new Date().toISOString();
-        console.log('Updating user with data:', updates);
-        
-        const { error: updateError } = await supabase
+      try {
+        const { data: newUser, error: createError } = await supabase
           .from('users')
-          .update(updates)
-          .eq('id', user.id);
-          
-        if (updateError) {
-          console.error('Error updating user:', updateError);
+          .insert(userData)
+          .select();
+        
+        if (createError) {
+          console.error('Error creating user in Supabase:', createError);
+          // Use the userData object as fallback
+          user = userData;
+        } else if (newUser && newUser.length > 0) {
+          console.log('Successfully created user in Supabase');
+          user = newUser[0];
         } else {
-          // Update local user object with new values
-          Object.assign(user, updates);
-          console.log('User updated successfully');
+          console.log('No error but no user returned, using userData as fallback');
+          user = userData;
         }
+      } catch (createError) {
+        console.error('Exception creating user:', createError);
+        // Use the userData object as fallback
+        user = userData;
       }
     }
     

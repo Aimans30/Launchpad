@@ -7,27 +7,19 @@ const { createClient } = require('@supabase/supabase-js');
 const admin = require('firebase-admin');
 const path = require('path');
 
-// Initialize Firebase
-const firebase = require('firebase/app');
-require('firebase/auth');
-
+// Initialize Firebase Admin SDK
 if (process.env.NODE_ENV !== 'test') {
   try {
-    const firebaseConfig = {
+    // Initialize Firebase Admin with application default credentials
+    admin.initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID,
       apiKey: process.env.FIREBASE_API_KEY,
       authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-      appId: process.env.FIREBASE_APP_ID,
-      measurementId: process.env.FIREBASE_MEASUREMENT_ID
-    };
+    });
     
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-    console.log('Firebase initialized successfully');
+    console.log('Firebase Admin SDK initialized successfully');
   } catch (error) {
-    console.error('Firebase initialization error:', error.message);
+    console.error('Firebase Admin SDK initialization error:', error.message);
   }
 }
 
@@ -52,8 +44,18 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
-app.use(helmet());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:3001', process.env.FRONTEND_URL].filter(Boolean),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Set security headers but allow CORS
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -65,11 +67,22 @@ app.get('/api/health', (req, res) => {
 
 // Import routes if they exist
 try {
+  console.log('Loading auth routes...');
   const authRoutes = require('./routes/auth.routes');
+  console.log('Auth routes required successfully');
+  
+  // Log available routes
+  console.log('Available auth routes:');
+  authRoutes.stack?.forEach(route => {
+    if (route.route) {
+      console.log(`${route.route.path} - ${Object.keys(route.route.methods).join(', ')}`);
+    }
+  });
+  
   app.use('/api/auth', authRoutes);
-  console.log('Auth routes loaded');
+  console.log('Auth routes mounted at /api/auth');
 } catch (error) {
-  console.log('Auth routes not loaded:', error.message);
+  console.error('Auth routes not loaded:', error.message, error.stack);
 }
 
 try {

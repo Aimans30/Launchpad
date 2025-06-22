@@ -2,54 +2,62 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 
 export default function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(true);
 
   useEffect(() => {
+    // Clear any existing session storage to prevent conflicts
+    try {
+      // Only clear auth-related items, not everything
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user");
+      sessionStorage.removeItem("firebase:authUser");
+    } catch (e) {
+      console.warn("Could not clear storage", e);
+    }
+
     async function handleCallback() {
       try {
+        setIsProcessing(true);
         const token = searchParams.get("token");
+        const errorParam = searchParams.get("error");
+        const errorMessage = searchParams.get("message");
+        
+        if (errorParam) {
+          throw new Error(errorMessage || `Authentication error: ${errorParam}`);
+        }
         
         if (!token) {
-          setError("No authentication token received");
-          return;
+          throw new Error("No authentication token received");
         }
 
-        // Store the token in localStorage
-        localStorage.setItem("auth_token", token);
-
-        // Call the login API to get user data
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/login`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ token }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || "Authentication failed");
-        }
-
-        const data = await response.json();
-        
-        // Store user data in localStorage
-        localStorage.setItem("user", JSON.stringify(data.user));
+        // Use the login function from AuthContext
+        await login(token);
         
         // Redirect to dashboard
+        console.log("Authentication successful, redirecting to dashboard");
         router.push("/dashboard");
       } catch (err: any) {
         console.error("Auth callback error:", err);
         setError(err.message || "Authentication failed");
+      } finally {
+        setIsProcessing(false);
       }
     }
 
-    handleCallback();
-  }, [router, searchParams]);
+    // Small delay to ensure browser has time to initialize storage
+    const timeoutId = setTimeout(() => {
+      handleCallback();
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [router, searchParams, login]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">

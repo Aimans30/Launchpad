@@ -1,36 +1,71 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
+
+interface Project {
+  id: string;
+  name: string;
+  framework: string;
+  status: string;
+  lastDeployed: string;
+  url: string;
+}
 
 export default function Dashboard() {
-  // Mock data for projects
-  const [projects, setProjects] = useState([
-    {
-      id: "proj_1",
-      name: "Personal Blog",
-      framework: "Next.js",
-      status: "active",
-      lastDeployed: "2023-11-15T14:32:00Z",
-      url: "https://blog.example.com",
-    },
-    {
-      id: "proj_2",
-      name: "E-commerce Store",
-      framework: "React",
-      status: "active",
-      lastDeployed: "2023-11-10T09:15:00Z",
-      url: "https://store.example.com",
-    },
-    {
-      id: "proj_3",
-      name: "Portfolio Site",
-      framework: "Astro",
-      status: "building",
-      lastDeployed: "2023-11-05T16:45:00Z",
-      url: "https://portfolio.example.com",
-    },
-  ]);
+  const { user, isLoading: authLoading } = useAuth();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Fetch user's projects from the backend
+  useEffect(() => {
+    const fetchProjects = async () => {
+      if (!user?.id) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Log user data for debugging
+        console.log('Dashboard user data:', user);
+        
+        // For now, use mock data but in the future fetch from API
+        // const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/projects`);
+        // if (!response.ok) throw new Error('Failed to fetch projects');
+        // const data = await response.json();
+        // setProjects(data.projects);
+        
+        // Use mock data for now, but include user's GitHub username if available
+        setProjects([
+          {
+            id: "proj_1",
+            name: user.github_username ? `${user.github_username}'s Blog` : "Personal Blog",
+            framework: "Next.js",
+            status: "active",
+            lastDeployed: "2023-11-15T14:32:00Z",
+            url: `https://${user.github_username || 'user'}.github.io/blog`,
+          },
+          {
+            id: "proj_2",
+            name: "E-commerce Store",
+            framework: "React",
+            status: "active",
+            lastDeployed: "2023-11-10T09:15:00Z",
+            url: "https://store.example.com",
+          },
+        ]);
+      } catch (err) {
+        console.error('Error fetching projects:', err);
+        setError('Failed to load projects. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchProjects();
+  }, [user]);
 
   // Mock data for recent deployments
   const [recentDeployments, setRecentDeployments] = useState([

@@ -10,7 +10,8 @@ router.get('/github/callback', authController.githubCallback);
 // User authentication routes
 router.post('/login', validateAuth, authController.login);
 router.post('/logout', authController.logout);
-router.get('/me', authController.getCurrentUser);
+router.get('/user', authController.getCurrentUser); // Endpoint used by frontend
+router.get('/me', authController.getCurrentUser); // Keep for backward compatibility
 router.get('/verify-token', authController.verifyToken);
 
 module.exports = router;

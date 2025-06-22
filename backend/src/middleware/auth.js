@@ -14,9 +14,17 @@ exports.authMiddleware = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decodedToken = await admin.auth().verifyIdToken(token);
     
+    // Log the decoded token for debugging
+    console.log('Decoded token:', {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      sub: decodedToken.sub
+    });
+    
     // Attach user ID to request
     req.user = {
-      id: decodedToken.uid,
+      id: decodedToken.uid, // This should match the auth.uid() in Supabase
+      uid: decodedToken.uid, // Also provide as uid for compatibility
       email: decodedToken.email,
     };
     

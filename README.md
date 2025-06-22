@@ -12,6 +12,7 @@ Launchpad is a full-stack application that provides seamless GitHub integration,
 - **Project Management**: Create, deploy, and manage multiple web projects
 - **Real-time Deployment Status**: Monitor the status of your deployments in real-time
 - **Framework Support**: Deploy applications built with popular frameworks like Next.js, React, Astro, and more
+- **Static Site Hosting**: Upload and host static websites with custom URLs
 - **User Dashboard**: Comprehensive dashboard to view all your projects and deployments
 
 ## Tech Stack
@@ -27,6 +28,7 @@ Launchpad is a full-stack application that provides seamless GitHub integration,
 - Express
 - Supabase (PostgreSQL)
 - Firebase Authentication
+- Static File Serving
 
 ## Architecture
 
@@ -36,6 +38,7 @@ Launchpad uses a modern architecture with:
 2. **Backend API**: Express server that handles authentication, project management, and deployment
 3. **Database**: Supabase (PostgreSQL) for storing user data and project information
 4. **Authentication**: Firebase for handling user authentication with GitHub OAuth
+5. **Static Site Hosting**: Express static file serving for user-uploaded websites
 
 ## Authentication Flow
 
@@ -55,6 +58,7 @@ Launchpad uses a modern architecture with:
 - Firebase account
 - GitHub OAuth application
 - Supabase account
+- Storage space for static sites
 
 ### Environment Variables
 
@@ -78,6 +82,8 @@ CALLBACK_URL=https://your-firebase-app.firebaseapp.com/__/auth/handler
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_key
 FIREBASE_PROJECT_ID=your_firebase_project_id
+BACKEND_URL=http://localhost:3001
+SITES_DIR=path/to/sites/directory
 ```
 
 ### Installation

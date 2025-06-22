@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const { createClient } = require('@supabase/supabase-js');
 const admin = require('firebase-admin');
 const path = require('path');
+const fs = require('fs');
 
 // Initialize Firebase Admin SDK
 if (process.env.NODE_ENV !== 'test') {
@@ -82,6 +83,11 @@ try {
   
   app.use('/api/auth', authRoutes);
   console.log('Auth routes mounted at /api/auth');
+  
+  // Load custom OAuth routes
+  const oauthRoutes = require('./routes/oauth.routes');
+  app.use('/api/auth', oauthRoutes);
+  console.log('OAuth routes mounted at /api/auth');
 } catch (error) {
   console.error('Auth routes not loaded:', error.message, error.stack);
 }
@@ -110,9 +116,36 @@ try {
   console.log('GitHub routes not loaded:', error.message);
 }
 
+try {
+  const siteRoutes = require('./routes/site.routes');
+  app.use('/api/sites', siteRoutes);
+  console.log('Site routes loaded');
+} catch (error) {
+  console.log('Site routes not loaded:', error.message);
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Serve static sites
+const SITES_DIR = process.env.SITES_DIR || path.join(__dirname, '../public/sites');
+if (!fs.existsSync(SITES_DIR)) {
+  fs.mkdirSync(SITES_DIR, { recursive: true });
+}
+app.use('/sites', express.static(SITES_DIR));
+
+// Catch-all route for sites to serve index.html for SPA routing
+app.get('/sites/:siteSlug/*', (req, res) => {
+  const siteSlug = req.params.siteSlug;
+  const indexPath = path.join(SITES_DIR, siteSlug, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send('Site not found');
+  }
 });
 
 // Error handling middleware

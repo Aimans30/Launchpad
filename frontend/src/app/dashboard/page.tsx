@@ -14,15 +14,38 @@ interface Project {
 }
 
 export default function Dashboard() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    // Check for auth_success flag which indicates we just completed authentication
+    const authSuccess = localStorage.getItem('auth_success');
+    
+    if (authSuccess === 'true') {
+      // We just completed authentication, clear the flag and stay on dashboard
+      console.log('Auth success flag found, staying on dashboard');
+      localStorage.removeItem('auth_success');
+      return;
+    }
+    
+    if (!authLoading && !isAuthenticated) {
+      console.log('User not authenticated, redirecting to login');
+      window.location.replace('/login');
+    }
+  }, [authLoading, isAuthenticated]);
+  
   // Fetch user's projects from the backend
   useEffect(() => {
     const fetchProjects = async () => {
-      if (!user?.id) return;
+      // Only fetch projects if user is authenticated and has an ID
+      if (!isAuthenticated || !user?.id) {
+        setProjects([]);
+        setIsLoading(false);
+        return;
+      }
       
       setIsLoading(true);
       setError(null);
@@ -45,7 +68,7 @@ export default function Dashboard() {
             framework: "Next.js",
             status: "active",
             lastDeployed: "2023-11-15T14:32:00Z",
-            url: `https://${user.github_username || 'user'}.github.io/blog`,
+            url: user.github_username ? `https://${user.github_username}.github.io/blog` : "https://my-blog-site.netlify.app",
           },
           {
             id: "proj_2",
@@ -65,7 +88,7 @@ export default function Dashboard() {
     };
     
     fetchProjects();
-  }, [user]);
+  }, [user, isAuthenticated]);
 
   // Mock data for recent deployments
   const [recentDeployments, setRecentDeployments] = useState([
@@ -149,6 +172,28 @@ export default function Dashboard() {
     );
   };
 
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="animate-pulse text-center">
+          <div className="text-2xl font-bold text-gray-900 dark:text-white">Loading...</div>
+          <div className="mt-6 flex justify-center">
+            <svg className="animate-spin h-10 w-10 text-black dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  // Only render dashboard if authenticated
+  if (!isAuthenticated) {
+    return null; // Will redirect in useEffect
+  }
+  
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}

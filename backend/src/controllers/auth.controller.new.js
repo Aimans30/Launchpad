@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
-const querystring = require('querystring');
+const { URLSearchParams } = require('url');
 const crypto = require('crypto');
 
 // Initialize Supabase Client
@@ -27,7 +27,8 @@ exports.githubLogin = (req, res) => {
   };
   
   // Redirect to GitHub OAuth login
-  const url = `https://github.com/login/oauth/authorize?${querystring.stringify(params)}`;
+  const searchParams = new URLSearchParams(params);
+  const url = `https://github.com/login/oauth/authorize?${searchParams.toString()}`;
   res.redirect(url);
 };
 

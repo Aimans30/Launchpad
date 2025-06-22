@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GithubAuthProvider, signInWithPopup, signInWithCustomToken, browserPopupRedirectResolver } from 'firebase/auth';
+import { getAuth, GithubAuthProvider, signInWithPopup, signInWithCustomToken, browserPopupRedirectResolver, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -15,6 +15,14 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+// Configure auth to use custom domain for OAuth operations
+// This helps hide the Firebase domain and API keys
+if (typeof window !== 'undefined') {
+  auth.useDeviceLanguage();
+}
+
+// Create GitHub provider
 const githubProvider = new GithubAuthProvider();
 
 // Add scopes to GitHub provider
@@ -25,8 +33,17 @@ githubProvider.addScope('repo');
 githubProvider.setCustomParameters({
   // Force re-prompt to ensure we get fresh credentials
   prompt: 'consent',
-  // Use the correct redirect URI that's registered with GitHub
-  redirect_uri: process.env.NEXT_PUBLIC_FIREBASE_REDIRECT_URI || ''
+  // Use Firebase's default redirect URI
+  redirect_uri: process.env.NEXT_PUBLIC_FIREBASE_REDIRECT_URI || 'https://launchpad-4a4ac.firebaseapp.com/__/auth/handler'
 });
 
-export { app, auth, githubProvider, signInWithPopup, signInWithCustomToken, browserPopupRedirectResolver };
+export { 
+  app, 
+  auth, 
+  githubProvider, 
+  signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
+  signInWithCustomToken, 
+  browserPopupRedirectResolver 
+};

@@ -3,6 +3,7 @@ const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+const { URLSearchParams } = require('url');
 
 // Initialize Supabase Client
 const supabase = createClient(
@@ -27,7 +28,8 @@ exports.githubLogin = (req, res) => {
   };
   
   // Redirect to GitHub OAuth login
-  const url = `https://github.com/login/oauth/authorize?${querystring.stringify(params)}`;
+  const searchParams = new URLSearchParams(params);
+  const url = `https://github.com/login/oauth/authorize?${searchParams.toString()}`;
   res.redirect(url);
 };
 

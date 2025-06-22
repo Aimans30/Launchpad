@@ -7,57 +7,88 @@ import { useAuth } from "@/context/AuthContext";
 export default function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login } = useAuth();
+  const { login, handleRedirectResult, isAuthenticating } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(true);
 
   useEffect(() => {
-    // Clear any existing session storage to prevent conflicts
-    try {
-      // Only clear auth-related items, not everything
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("user");
-      sessionStorage.removeItem("firebase:authUser");
-    } catch (e) {
-      console.warn("Could not clear storage", e);
-    }
-
     async function handleCallback() {
       try {
+        console.log('Auth callback page loaded');
         setIsProcessing(true);
+        
+        // Check if this is a GitHub OAuth callback (has code parameter)
+        const code = searchParams.get("code");
+        const state = searchParams.get("state");
+        console.log('URL parameters:', { 
+          code: code ? 'present' : 'absent', 
+          state: state ? 'present' : 'absent',
+          inProgress: sessionStorage.getItem('github_auth_in_progress')
+        });
+        
+        // Handle standard token-based callback from backend
         const token = searchParams.get("token");
         const errorParam = searchParams.get("error");
         const errorMessage = searchParams.get("message");
         
+        // Handle error parameters
         if (errorParam) {
+          console.error(`Auth error from URL parameters: ${errorParam}`);
           throw new Error(errorMessage || `Authentication error: ${errorParam}`);
         }
         
-        if (!token) {
-          throw new Error("No authentication token received");
+        // If this is a GitHub OAuth callback (has code parameter)
+        if (code && state) {
+          console.log("Processing GitHub OAuth callback with code and state");
+          // Process the redirect result using Firebase
+          try {
+            console.log('Calling handleRedirectResult from callback page');
+            await handleRedirectResult();
+            console.log('handleRedirectResult completed successfully');
+            
+            // Force a direct redirect to dashboard
+            console.log('Auth callback forcing redirect to dashboard');
+            // Set a flag to indicate successful authentication
+            localStorage.setItem('auth_success', 'true');
+            // Use direct window.location.href for most reliable redirect
+            window.location.href = '/dashboard';
+            return;
+          } catch (githubError: any) {
+            console.error("GitHub auth error:", githubError);
+            setError(githubError.message || "GitHub authentication failed");
+            setIsProcessing(false);
+            return;
+          }
         }
-
-        // Use the login function from AuthContext
-        await login(token);
         
-        // Redirect to dashboard
-        console.log("Authentication successful, redirecting to dashboard");
-        router.push("/dashboard");
+        // Handle direct token-based authentication
+        if (token) {
+          // Use the login function from AuthContext
+          await login(token);
+          
+          // Redirect to dashboard
+          console.log("Authentication successful, redirecting to dashboard");
+          window.location.replace("/dashboard");
+          return;
+        }
+        
+        // If we get here, we don't have a token or code
+        if (!isAuthenticating) {
+          throw new Error("No authentication parameters received");
+        }
       } catch (err: any) {
         console.error("Auth callback error:", err);
         setError(err.message || "Authentication failed");
       } finally {
-        setIsProcessing(false);
+        if (!isAuthenticating) {
+          setIsProcessing(false);
+        }
       }
     }
 
-    // Small delay to ensure browser has time to initialize storage
-    const timeoutId = setTimeout(() => {
-      handleCallback();
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-  }, [router, searchParams, login]);
+    // Execute the callback handler immediately
+    handleCallback();
+  }, [router, searchParams, login, handleRedirectResult, isAuthenticating]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">

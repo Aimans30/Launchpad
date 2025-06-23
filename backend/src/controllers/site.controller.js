@@ -63,8 +63,10 @@ exports.uploadSite = async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const userId = req.user.id;
+    const userId = req.user.firebase_uid || req.user.id;
     const { siteName } = req.body;
+    
+    console.log('Upload site - User ID:', userId);
 
     if (!siteName) {
       return res.status(400).json({ error: 'Site name is required' });
@@ -166,7 +168,7 @@ exports.uploadFolder = async (req, res) => {
     
     // Get user ID from req.user.id or req.user.uid (set by auth middleware)
     // Firebase Auth uses uid, but our database expects id to match auth.uid()
-    const userId = req.user.uid || req.user.id;
+    const userId = req.user.firebase_uid || req.user.id;
     console.log('User ID from request:', userId);
     
     if (!userId) {
@@ -352,7 +354,7 @@ exports.uploadFolder = async (req, res) => {
 exports.createSite = async (req, res) => {
   try {
     const { name } = req.body;
-    const userId = req.user.id;
+    const userId = req.user.firebase_uid || req.user.id;
 
     if (!name) {
       return res.status(400).json({ error: 'Site name is required' });
@@ -454,7 +456,9 @@ exports.getAllSites = async (req, res) => {
  */
 exports.getUserSites = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.firebase_uid || req.user.id;
+    
+    console.log('Sites controller - Getting sites for user:', userId);
 
     const { data: sites, error } = await supabase
       .from('sites')
@@ -467,6 +471,7 @@ exports.getUserSites = async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch sites' });
     }
 
+    console.log(`Found ${sites?.length || 0} sites for user ${userId}`);
     res.status(200).json({ sites });
   } catch (error) {
     console.error('Get user sites error:', error);
@@ -480,7 +485,7 @@ exports.getUserSites = async (req, res) => {
 exports.getSiteById = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.firebase_uid || req.user.id;
 
     const { data: site, error } = await supabase
       .from('sites')
@@ -511,7 +516,9 @@ exports.updateSite = async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
-    const userId = req.user.id;
+    const userId = req.user.firebase_uid || req.user.id;
+    
+    console.log('Update site - User ID:', userId);
 
     // Check if site exists and belongs to user
     const { data: existingSite, error: findError } = await supabase
@@ -588,7 +595,9 @@ exports.updateSite = async (req, res) => {
 exports.deleteSite = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.uid || req.user.id;
+    
+    console.log('Delete site - User ID:', userId);
 
     // Check if site exists and belongs to user
     const { data: site, error: findError } = await supabase

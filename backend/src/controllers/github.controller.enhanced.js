@@ -66,52 +66,58 @@ exports.getRepositories = async (req, res) => {
       
       return res.status(401).json({ 
         error: 'GitHub authentication required', 
-        message: 'No GitHub access token found for your account. Please sign in with GitHub again.'
+        message: 'No GitHub access token found for your account. Please reconnect your GitHub account.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
       });
     }
 
-    let repositories = [];
-    
-    // Fetch repositories from GitHub API
+    // Verify the token is still valid
     try {
-      const response = await axios({
-        method: 'get',
-        url: 'https://api.github.com/user/repos',
-        params: {
-          sort: 'updated',
-          per_page: 100
-        },
+      const verifyResponse = await axios.get('https://api.github.com/user', {
         headers: {
           Authorization: `token ${user.github_access_token}`,
           Accept: 'application/vnd.github.v3+json',
         },
       });
       
-      repositories = response.data;
-      console.log(`Successfully fetched ${repositories.length} repositories from GitHub`);
-      
-    } catch (error) {
-      console.error('Error fetching GitHub repositories:', error.message);
-      
-      // Check if it's an authentication error
-      if (error.response && error.response.status === 401) {
-        // Clear the invalid token
-        await supabase
-          .from('users')
-          .update({ github_access_token: null })
-          .eq('firebase_uid', userId);
-          
+      if (verifyResponse.status !== 200) {
+        console.log('GitHub token validation failed:', verifyResponse.status);
         return res.status(401).json({ 
-          error: 'GitHub authentication required', 
-          message: 'Your GitHub token has expired or is invalid. Please reconnect your GitHub account.'
+          error: 'GitHub token expired', 
+          message: 'Your GitHub access token has expired. Please reconnect your GitHub account.',
+          reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
         });
       }
       
-      return res.status(error.response?.status || 500).json({ 
-        error: 'Failed to fetch repositories from GitHub',
-        message: error.message
+      console.log('GitHub token validated successfully');
+    } catch (tokenError) {
+      console.error('Error validating GitHub token:', tokenError.message);
+      return res.status(401).json({ 
+        error: 'GitHub token invalid', 
+        message: 'Your GitHub access token is invalid. Please reconnect your GitHub account.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
       });
     }
+
+    // Fetch repositories from GitHub API
+    const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
+      headers: {
+        Authorization: `token ${user.github_access_token}`,
+        Accept: 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('GitHub API error:', errorData);
+      return res.status(response.status).json({ 
+        error: 'Failed to fetch repositories from GitHub',
+        message: 'There was an error fetching your GitHub repositories. Please try again or reconnect your GitHub account.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
+      });
+    }
+
+    const repositories = await response.json();
     
     // Return only the data we need
     const formattedRepos = repositories.map(repo => ({
@@ -191,7 +197,8 @@ exports.getRepositoryBranches = async (req, res) => {
       
       return res.status(401).json({ 
         error: 'GitHub authentication required', 
-        message: 'No GitHub access token found for your account. Please sign in with GitHub again.'
+        message: 'No GitHub access token found for your account. Please reconnect your GitHub account.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
       });
     }
 
@@ -206,7 +213,11 @@ exports.getRepositoryBranches = async (req, res) => {
     if (!response.ok) {
       const errorData = await response.json();
       console.error('GitHub API error:', errorData);
-      return res.status(response.status).json({ error: 'Failed to fetch branches from GitHub' });
+      return res.status(response.status).json({ 
+        error: 'Failed to fetch branches from GitHub',
+        message: 'There was an error fetching repository branches. Please try again or reconnect your GitHub account.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
+      });
     }
 
     const branches = await response.json();
@@ -246,7 +257,11 @@ exports.validateRepository = async (req, res) => {
     console.log('GitHub controller (validate) - User lookup result:', { userId, userFound: !!user, hasToken: user?.github_access_token ? true : false });
 
     if (userError || !user || !user.github_access_token) {
-      return res.status(401).json({ error: 'GitHub authentication required' });
+      return res.status(401).json({ 
+        error: 'GitHub authentication required',
+        message: 'No GitHub access token found for your account. Please reconnect your GitHub account.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
+      });
     }
 
     // Check repository access
@@ -258,7 +273,11 @@ exports.validateRepository = async (req, res) => {
     });
 
     if (!response.ok) {
-      return res.status(403).json({ error: 'Repository not found or no access' });
+      return res.status(403).json({ 
+        error: 'Repository not found or no access',
+        message: 'The repository was not found or you do not have access to it. Please check the URL and your GitHub permissions.',
+        reconnectUrl: `${process.env.FRONTEND_URL}/projects?reconnect=github`
+      });
     }
 
     const repoData = await response.json();

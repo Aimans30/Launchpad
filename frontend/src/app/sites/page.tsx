@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/config/firebase';
 import Link from 'next/link';
+import { FaGlobe as GlobeIcon, FaFolder as FolderIcon } from 'react-icons/fa';
 
 interface Site {
   id: string;
@@ -45,15 +46,20 @@ export default function SitesPage() {
     fetchSites();
   }, [user, router]);
 
+
+
   const fetchSites = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       
       if (!token) {
         throw new Error('Not authenticated');
       }
       
+      // Fetch from API
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/sites/user`, {
         headers: {
           Authorization: `Bearer ${token}`
@@ -61,13 +67,29 @@ export default function SitesPage() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to fetch sites');
+        const statusCode = response.status;
+        let errorMessage = `Failed to fetch sites: ${statusCode}`;
+        
+        // Provide more specific error messages based on status code
+        if (statusCode === 500) {
+          errorMessage = 'The server encountered an internal error. Our team has been notified.';
+        } else if (statusCode === 404) {
+          // Special handling for 404 - this likely means the sites endpoint isn't implemented yet
+          // or the user hasn't created any sites
+          setSites([]);
+          setLoading(false);
+          return; // Exit early with empty sites array
+        } else if (statusCode === 401 || statusCode === 403) {
+          errorMessage = 'You do not have permission to access this resource. Please check your authentication.';
+        }
+        
+        throw new Error(errorMessage);
       }
       
       const data = await response.json();
       setSites(data.sites || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : 'Failed to load sites');
     } finally {
       setLoading(false);
     }
@@ -287,8 +309,18 @@ export default function SitesPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold">My Static Sites</h1>
+        </div>
+        <div className="flex flex-col items-center justify-center py-12">
+          <svg className="h-16 w-16 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="mt-4 text-lg font-medium text-gray-900 dark:text-white">Loading sites...</p>
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Please wait while we fetch your sites</p>
+        </div>
       </div>
     );
   }
@@ -314,23 +346,48 @@ export default function SitesPage() {
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          <p>{error}</p>
-          <button
-            className="float-right font-bold"
-            onClick={() => setError(null)}
-          >
-            &times;
-          </button>
+        <div className="mb-6">
+          <div className="max-w-md mx-auto bg-red-50 border border-red-200 rounded-lg p-6 shadow-sm dark:bg-red-900/20 dark:border-red-800">
+            <svg className="w-12 h-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 className="text-lg font-medium text-red-800 dark:text-red-300 mb-2">Error Fetching Sites</h3>
+            <p className="text-red-700 dark:text-red-400 mb-4">{error}</p>
+            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">The server might be down or there could be a network issue. Please try again later.</p>
+            <button
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                fetchSites();
+              }}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors duration-200 mx-auto block"
+            >
+              Try Again
+            </button>
+          </div>
         </div>
       )}
 
-      {sites.length === 0 ? (
-        <div className="bg-gray-100 p-8 rounded-lg text-center">
-          <h2 className="text-xl font-semibold mb-2">No sites yet</h2>
-          <p className="text-gray-600 mb-4">
-            Create a new site or upload an existing one to get started.
+      {/* Empty state when no sites exist */}
+      {!loading && !error && sites.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="mx-auto w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
+            <GlobeIcon className="h-12 w-12 text-gray-400 dark:text-gray-500" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white">No sites deployed yet</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Sites appear here after you deploy a project through our platform.
+            First create a project, then deploy it to see it listed here.
           </p>
+          <div className="mt-6 space-y-4">
+            <Link
+              href="/projects"
+              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-black hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white"
+            >
+              <FolderIcon className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
+              Go to Projects
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

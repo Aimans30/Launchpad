@@ -212,11 +212,32 @@ exports.getCurrentUser = async (req, res) => {
       console.log('GitHub ID found directly in token root:', githubId);
     }
     
-    // Extract user details
-    const name = decodedToken.name || githubData.name || 'GitHub User';
-    const email = decodedToken.email || githubData.email || null;
-    const picture = decodedToken.picture || githubData.avatar_url || githubData.picture || null;
-    const githubUsername = githubData.login || decodedToken.github_username || decodedToken.githubUsername || null;
+    // Check if we have explicit data in the request body (from POST request)
+    const requestBody = req.body || {};
+    
+    // Extract user details - prioritize request body data over token data
+    const name = requestBody.displayName || decodedToken.name || githubData.name || 'GitHub User';
+    const email = requestBody.email || decodedToken.email || githubData.email || null;
+    const picture = requestBody.photoURL || decodedToken.picture || githubData.avatar_url || githubData.picture || null;
+    
+    // For GitHub username and ID, explicitly prioritize data from request body
+    let githubUsername = null;
+    if (requestBody.githubUsername) {
+      githubUsername = requestBody.githubUsername;
+      console.log('Using GitHub username from request body:', githubUsername);
+    } else {
+      githubUsername = githubData.login || decodedToken.github_username || decodedToken.githubUsername || null;
+      console.log('Using GitHub username from token:', githubUsername);
+    }
+    
+    // Similarly for GitHub ID
+    if (requestBody.githubId) {
+      githubId = String(requestBody.githubId);
+      console.log('Using GitHub ID from request body:', githubId);
+    } else if (!githubId) {
+      // Only use this as fallback if we didn't already find githubId through other methods
+      console.log('No GitHub ID found yet, checking other sources');
+    }
     
     console.log('Extracted user info:', {
       name,
@@ -323,6 +344,13 @@ exports.getCurrentUser = async (req, res) => {
       console.log('Email for new user:', email ? '(email present)' : '(no email)');
       console.log('Avatar URL for new user:', picture ? '(avatar present)' : '(no avatar)');
       
+      // Get GitHub access token if available
+      let githubAccessToken = null;
+      if (req.body && req.body.github_access_token) {
+        githubAccessToken = req.body.github_access_token;
+        console.log('Using GitHub access token from request body');
+      }
+      
       const newUser = {
         id: userId,
         firebase_uid: uid,
@@ -331,6 +359,7 @@ exports.getCurrentUser = async (req, res) => {
         name: name,
         email: email,
         avatar_url: picture,
+        github_access_token: githubAccessToken,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -374,6 +403,13 @@ exports.getCurrentUser = async (req, res) => {
       if (picture && (!user.avatar_url || user.avatar_url !== picture)) {
         console.log('Updating avatar_url');
         updates.avatar_url = picture;
+        needsUpdate = true;
+      }
+      
+      // Check if we have a GitHub access token to update
+      if (req.body && req.body.github_access_token) {
+        console.log('Updating GitHub access token');
+        updates.github_access_token = req.body.github_access_token;
         needsUpdate = true;
       }
       

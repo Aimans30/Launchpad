@@ -46,7 +46,7 @@ exports.createDeployment = async (req, res) => {
         branch,
         commit_sha: commitSha,
         status: 'queued',
-        deployment_url: `${project.subdomain}.${process.env.DEPLOYMENT_DOMAIN}`,
+        deployment_url: `${projectId}.${process.env.DEPLOYMENT_DOMAIN || 'launchpad.local'}`,
         created_at: new Date(),
         updated_at: new Date()
       })
@@ -77,7 +77,7 @@ exports.getAllDeployments = async (req, res) => {
   try {
     const { data: deployments, error } = await supabase
       .from('deployments')
-      .select('*, projects(name, subdomain)')
+      .select('*, projects(name)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -101,7 +101,7 @@ exports.getUserDeployments = async (req, res) => {
 
     const { data: deployments, error } = await supabase
       .from('deployments')
-      .select('*, projects(name, subdomain)')
+      .select('*, projects(name)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
@@ -127,7 +127,7 @@ exports.getDeploymentById = async (req, res) => {
 
     const { data: deployment, error } = await supabase
       .from('deployments')
-      .select('*, projects(name, subdomain, framework)')
+      .select('*, projects(name, framework)')
       .eq('id', id)
       .single();
 

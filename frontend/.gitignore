@@ -48,6 +48,12 @@ next-env.d.ts
 firebase-config.js
 firebase-config.ts
 firebaseConfig.js
+firebase-service-account.json
+
+# GitHub OAuth
+.github-oauth-credentials.json
+github-credentials.js
+github-credentials.ts
 firebaseConfig.ts
 .firebase/
 

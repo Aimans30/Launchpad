@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GithubAuthProvider, signInWithPopup, signInWithCustomToken, browserPopupRedirectResolver, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { getAuth, GithubAuthProvider, signInWithPopup, signInWithCustomToken, browserPopupRedirectResolver, signInWithRedirect, getRedirectResult, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -16,10 +16,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-// Configure auth to use custom domain for OAuth operations
-// This helps hide the Firebase domain and API keys
+// Configure auth to use device language for localization
 if (typeof window !== 'undefined') {
-  auth.useDeviceLanguage();
+  auth.useDeviceLanguage(); 
 }
 
 // Create GitHub provider
@@ -33,8 +32,8 @@ githubProvider.addScope('repo');
 githubProvider.setCustomParameters({
   // Force re-prompt to ensure we get fresh credentials
   prompt: 'consent',
-  // Use Firebase's default redirect URI
-  redirect_uri: process.env.NEXT_PUBLIC_FIREBASE_REDIRECT_URI || 'https://launchpad-4a4ac.firebaseapp.com/__/auth/handler'
+  // Add additional parameters to help with local development
+  allow_signup: 'true'
 });
 
 export { 
@@ -45,5 +44,7 @@ export {
   signInWithRedirect,
   getRedirectResult,
   signInWithCustomToken, 
-  browserPopupRedirectResolver 
+  browserPopupRedirectResolver,
+  setPersistence,
+  browserLocalPersistence
 };

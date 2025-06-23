@@ -124,6 +124,33 @@ try {
   console.log('Site routes not loaded:', error.message);
 }
 
+// Load debug routes
+try {
+  const debugRoutes = require('./routes/debug.routes');
+  app.use('/api/debug', debugRoutes);
+  console.log('Debug routes loaded');
+} catch (error) {
+  console.log('Debug routes not loaded:', error.message);
+}
+
+// Load token routes
+try {
+  const tokenRoutes = require('./routes/token.routes');
+  app.use('/api/token', tokenRoutes);
+  console.log('Token routes loaded');
+} catch (error) {
+  console.log('Token routes not loaded:', error.message);
+}
+
+// Load GitHub auth routes
+try {
+  const githubAuthRoutes = require('./routes/github-auth.routes');
+  app.use('/api/github-auth', githubAuthRoutes);
+  console.log('GitHub auth routes loaded');
+} catch (error) {
+  console.log('GitHub auth routes not loaded:', error.message);
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -10,8 +10,13 @@ router.get('/github/callback', authController.githubCallback);
 // User authentication routes
 router.post('/login', validateAuth, authController.login);
 router.post('/logout', authController.logout);
-router.get('/user', authController.getCurrentUser); // Endpoint used by frontend
+
+// User data endpoints - support both GET and POST for flexibility
+router.get('/user', authController.getCurrentUser); // Get user data from token
+router.post('/user', authController.getCurrentUser); // Allow updating user data
 router.get('/me', authController.getCurrentUser); // Keep for backward compatibility
+
+// Token verification
 router.get('/verify-token', authController.verifyToken);
 
 module.exports = router;

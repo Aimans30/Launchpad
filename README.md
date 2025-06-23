@@ -48,6 +48,30 @@ Launchpad uses a modern architecture with:
 4. After GitHub authorization, user is redirected to Firebase's auth handler
 5. Firebase handles the OAuth callback and creates a session
 6. Frontend handles the authentication state via Firebase SDK
+7. GitHub OAuth code is exchanged for an access token
+8. Access token is securely stored in the Supabase users table
+9. Token is used for GitHub API operations (fetching repositories, etc.)
+
+## GitHub Integration
+
+Launchpad provides seamless GitHub integration with the following features:
+
+- **OAuth Authentication**: Secure sign-in with GitHub credentials
+- **Token Management**: Secure storage and refresh of GitHub access tokens
+- **Repository Access**: Browse and select repositories for deployment
+- **Automatic Repository Detection**: Auto-detection of project type and framework
+- **Branch Selection**: Choose which branch to deploy
+- **Commit History**: View recent commits for selected repositories
+
+### Token Storage Security
+
+GitHub access tokens are securely managed with multiple layers of protection:
+
+1. **Secure Storage**: Tokens are stored in the Supabase database with proper encryption
+2. **Server-Side Exchange**: OAuth code-to-token exchange happens server-side
+3. **Automatic Refresh**: Invalid tokens trigger re-authentication flow
+4. **Token Validation**: Tokens are validated before use with GitHub API
+5. **Fallback Mechanisms**: Multiple storage methods ensure token persistence
 7. User data is stored and synchronized with Supabase
 
 ## Setup Instructions

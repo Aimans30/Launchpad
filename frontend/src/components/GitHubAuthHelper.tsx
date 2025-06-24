@@ -76,10 +76,16 @@ export default function GitHubAuthHelper({ onSuccess, onError }: GitHubAuthHelpe
     setError(null);
     
     try {
+      // Store a flag indicating we're in the GitHub auth flow
+      sessionStorage.setItem('github_auth_in_progress', 'true');
+      console.log('Initiating GitHub auth flow');
+      
       // Redirect to GitHub OAuth flow
       window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/api/auth/github`;
     } catch (err) {
+      sessionStorage.removeItem('github_auth_in_progress');
       const errorMessage = err instanceof Error ? err.message : 'Failed to initiate GitHub auth';
+      console.error('GitHub auth initiation error:', errorMessage);
       setError(errorMessage);
       if (onError) onError(errorMessage);
       setIsLoading(false);

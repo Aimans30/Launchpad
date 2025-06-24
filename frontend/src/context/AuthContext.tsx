@@ -225,6 +225,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const accessToken = credential?.accessToken;
       const token = await result.user.getIdToken();
       
+      // Store the GitHub access token in the backend
+      if (accessToken) {
+        try {
+          console.log('Storing GitHub access token in backend...');
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+          const tokenResponse = await fetch(`${apiUrl}/api/token/github`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ token: accessToken }),
+          });
+          
+          if (tokenResponse.ok) {
+            console.log('GitHub access token stored successfully');
+          } else {
+            console.error('Failed to store GitHub access token:', await tokenResponse.text());
+          }
+        } catch (tokenError) {
+          console.error('Error storing GitHub access token:', tokenError);
+        }
+      } else {
+        console.warn('No GitHub access token available from credential');
+      }
+      
       // Store the Firebase token
       localStorage.setItem('auth_token', token);
       

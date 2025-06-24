@@ -325,64 +325,89 @@ export default function SitesPage() {
     );
   }
 
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">My Static Sites</h1>
-        <div className="space-x-2">
+
+return (
+  <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    {/* Hero section with gradient overlay */}
+    <div className="relative bg-gradient-to-r from-blue-600 to-purple-600 overflow-hidden">
+      <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/90 to-purple-900/90"></div>
+        <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-20"></div>
+        <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-slate-900 to-transparent"></div>
+      </div>
+      <div className="relative container mx-auto px-4 py-12">
+        <h1 className="text-4xl md:text-5xl font-extrabold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-300 to-purple-300">
+          My Static Sites
+        </h1>
+        <p className="text-lg text-blue-100 max-w-2xl mb-8">
+          Deploy and manage your static websites with ease. Launch your projects to the world in seconds.
+        </p>
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setShowUploadModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white font-medium px-6 py-3 rounded-lg shadow-lg hover:shadow-blue-500/30 transition-all duration-300 flex items-center gap-2"
           >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
             Upload Site
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            className="bg-gradient-to-r from-purple-500 to-purple-700 hover:from-purple-600 hover:to-purple-800 text-white font-medium px-6 py-3 rounded-lg shadow-lg hover:shadow-purple-500/30 transition-all duration-300 flex items-center gap-2"
           >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
             Create Site
           </button>
         </div>
       </div>
-
+    </div>
+    <div className="container mx-auto px-4 py-12 -mt-12">
       {error && (
         <div className="mb-6">
-          <div className="max-w-md mx-auto bg-red-50 border border-red-200 rounded-lg p-6 shadow-sm dark:bg-red-900/20 dark:border-red-800">
-            <svg className="w-12 h-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="text-lg font-medium text-red-800 dark:text-red-300 mb-2">Error Fetching Sites</h3>
-            <p className="text-red-700 dark:text-red-400 mb-4">{error}</p>
-            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">The server might be down or there could be a network issue. Please try again later.</p>
-            <button
-              onClick={() => {
-                setError(null);
-                setLoading(true);
-                fetchSites();
-              }}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors duration-200 mx-auto block"
-            >
-              Try Again
-            </button>
+          <div className="max-w-md mx-auto bg-red-800/20 backdrop-blur-sm border border-red-700/30 rounded-xl p-6 shadow-lg">
+            <div className="relative">
+              <div className="absolute -top-10 -left-10 w-20 h-20 bg-red-500/20 rounded-full blur-2xl"></div>
+              <div className="absolute -bottom-10 -right-10 w-20 h-20 bg-red-500/20 rounded-full blur-2xl"></div>
+              <svg className="w-12 h-12 text-red-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3 className="text-lg font-medium text-red-300 mb-2 text-center">Error Fetching Sites</h3>
+              <p className="text-red-300 mb-4 text-center">{error}</p>
+              <p className="text-gray-300 mb-4 text-sm text-center">The server might be down or there could be a network issue. Please try again later.</p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  fetchSites();
+                }}
+                className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 text-white rounded-lg transition-all duration-300 shadow-lg hover:shadow-red-500/30 mx-auto block"
+              >
+                Try Again
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Empty state when no sites exist */}
       {!loading && !error && sites.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="mx-auto w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
-            <GlobeIcon className="h-12 w-12 text-gray-400 dark:text-gray-500" />
+        <div className="text-center py-20">
+          <div className="relative mx-auto w-32 h-32 mb-8">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-500/20 to-purple-500/20 animate-pulse blur-xl"></div>
+            <div className="relative mx-auto w-24 h-24 bg-slate-800/60 backdrop-blur-sm rounded-full flex items-center justify-center border border-slate-700/50 shadow-lg">
+              <GlobeIcon className="h-12 w-12 text-blue-400" />
+            </div>
           </div>
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white">No sites deployed yet</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">No Sites Deployed Yet</h3>
+          <p className="mt-1 text-lg text-blue-100/70 max-w-md mx-auto mb-8">
             Sites appear here after you deploy a project through our platform.
             First create a project, then deploy it to see it listed here.
           </p>
-          <div className="mt-6 space-y-4">
+          <div className="mt-6">
             <Link
               href="/projects"
-              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-black hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black dark:focus:ring-white"
+              className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium rounded-lg shadow-lg hover:shadow-blue-500/30 transition-all duration-300"
             >
               <FolderIcon className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
               Go to Projects
@@ -390,35 +415,47 @@ export default function SitesPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {sites.map((site) => (
             <div
               key={site.id}
-              className="border rounded-lg overflow-hidden shadow-md"
+              className="group relative bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl overflow-hidden shadow-lg hover:shadow-blue-500/20 transition-all duration-300 hover:-translate-y-1"
             >
-              <div className="p-4">
-                <h2 className="text-xl font-semibold mb-2">{site.name}</h2>
-                <p className="text-gray-600 mb-2">
-                  Status: <span className={`font-medium ${site.status === 'active' ? 'text-green-600' : 'text-yellow-600'}`}>
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-500 to-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+              <div className="relative p-6">
+                <h2 className="text-2xl font-bold mb-3 text-white group-hover:bg-gradient-to-r group-hover:from-blue-400 group-hover:to-purple-400 group-hover:bg-clip-text group-hover:text-transparent transition-all duration-300">{site.name}</h2>
+                <p className="text-slate-300 mb-2 flex items-center space-x-2">
+                  <span>Status:</span> 
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${site.status === 'active' ? 'bg-green-500/20 text-green-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
+                    {site.status === 'active' && (
+                      <span className="w-2 h-2 mr-1.5 bg-green-400 rounded-full animate-pulse"></span>
+                    )}
                     {site.status.charAt(0).toUpperCase() + site.status.slice(1)}
                   </span>
                 </p>
-                <p className="text-gray-600 mb-4">
-                  Created: {new Date(site.created_at).toLocaleDateString()}
+                <p className="text-slate-400 mb-6 text-sm">
+                  Created: {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(site.created_at))}
                 </p>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center pt-4 border-t border-slate-700/50">
                   <a
                     href={`${process.env.NEXT_PUBLIC_API_URL}${site.site_url}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
+                    className="inline-flex items-center text-blue-400 hover:text-blue-300 transition-colors gap-1.5"
                   >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
                     View Site
                   </a>
                   <button
                     onClick={() => handleDeleteSite(site.id)}
-                    className="text-red-600 hover:underline"
+                    className="inline-flex items-center text-red-400 hover:text-red-300 transition-colors gap-1.5"
                   >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
                     Delete
                   </button>
                 </div>
@@ -427,113 +464,112 @@ export default function SitesPage() {
           ))}
         </div>
       )}
-
-      {/* Create Site Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Create New Site</h2>
-            <form onSubmit={handleCreateSite}>
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Site Name</label>
-                <input
-                  type="text"
-                  value={siteName}
-                  onChange={(e) => setSiteName(e.target.value)}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="My Awesome Site"
-                  required
-                />
-              </div>
-              <div className="flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setSiteName('');
-                  }}
-                  className="px-4 py-2 border rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Site Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Upload Static Site</h2>
-            <form onSubmit={handleUploadSite}>
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Site Name</label>
-                <input
-                  type="text"
-                  value={siteName}
-                  onChange={(e) => setSiteName(e.target.value)}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="My Awesome Site"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Select Website Folder</label>
-                <FolderUpload 
-                  onFolderSelect={(files) => setSelectedFiles(files)} 
-                  disabled={isUploading}
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Select the folder containing your built static site (with index.html in the root)
-                </p>
-              </div>
-              
-              {isUploading && (
-                <div className="mb-4">
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div 
-                      className="bg-blue-600 h-2.5 rounded-full" 
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-sm text-center mt-1">{uploadProgress}% Uploaded</p>
-                </div>
-              )}
-              
-              <div className="flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUploadModal(false);
-                    setSiteName('');
-                    setSelectedFiles(null);
-                    setUploadProgress(0);
-                  }}
-                  className="px-4 py-2 border rounded"
-                  disabled={isUploading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded"
-                  disabled={isUploading}
-                >
-                  {isUploading ? 'Uploading...' : 'Upload'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
-  );
+
+    {/* Create Site Modal */}
+    {showCreateModal && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <h2 className="text-xl font-bold mb-4">Create New Site</h2>
+          <form onSubmit={handleCreateSite}>
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">Site Name</label>
+              <input
+                type="text"
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                className="w-full px-3 py-2 border rounded"
+                placeholder="My Awesome Site"
+                required
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setSiteName('');
+                }}
+                className="px-4 py-2 border rounded"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded"
+              >
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+
+    {/* Upload Site Modal */}
+    {showUploadModal && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <h2 className="text-xl font-bold mb-4">Upload Static Site</h2>
+          <form onSubmit={handleUploadSite}>
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">Site Name</label>
+              <input
+                type="text"
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                className="w-full px-3 py-2 border rounded"
+                placeholder="My Awesome Site"
+                required
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">Select Website Folder</label>
+              <FolderUpload 
+                onFolderSelect={(files) => setSelectedFiles(files)} 
+                disabled={isUploading}
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Select the folder containing your built static site (with index.html in the root)
+              </p>
+            </div>
+            {isUploading && (
+              <div className="mb-4">
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className="bg-blue-600 h-2.5 rounded-full" 
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+                <p className="text-sm text-center mt-1">{uploadProgress}% Uploaded</p>
+              </div>
+            )}
+            <div className="flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setSiteName('');
+                  setSelectedFiles(null);
+                  setUploadProgress(0);
+                }}
+                className="px-4 py-2 border rounded"
+                disabled={isUploading}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded"
+                disabled={isUploading}
+              >
+                {isUploading ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+  </div>
+);
 }

@@ -113,15 +113,32 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-900 via-blue-950 to-black text-white">
-      <div className="container mx-auto px-4 py-16">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-black text-white relative overflow-hidden">
+      {/* Background effects */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-20 z-0"></div>
+        <div className="absolute -top-20 -right-20 w-80 h-80 bg-purple-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-blue-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
+        <div className="absolute top-1/2 left-1/3 w-80 h-80 bg-cyan-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-4000"></div>
+      </div>
+      
+      {/* Content container */}
+      <div className="container mx-auto px-4 py-16 relative z-10">
         <div className="flex flex-col items-center justify-center text-center">
-          <div className="mb-12">
-            <Image src="/logo.svg" alt="Launchpad" width={150} height={150} priority />
-            <h1 className="mt-6 text-5xl font-bold">Welcome to Launchpad</h1>
-            <p className="mt-4 text-xl text-blue-300">
+          {/* Logo with glow effect */}
+          <div className="mb-16 relative">
+            <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 opacity-50 blur-lg"></div>
+            <Image src="/logo.svg" alt="Launchpad" width={180} height={180} priority className="relative drop-shadow-2xl" />
+            
+            <h1 className="mt-10 text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-cyan-200 to-purple-300 drop-shadow-lg">
+              Welcome to Launchpad
+            </h1>
+            <p className="mt-6 text-2xl bg-gradient-to-r from-blue-200 via-blue-300 to-purple-200 bg-clip-text text-transparent max-w-2xl mx-auto">
               Your mission control for easy deployment of web apps.
             </p>
+            
+            {/* Animated highlight line */}
+            <div className="mt-6 h-0.5 w-32 mx-auto bg-gradient-to-r from-blue-500 to-purple-500 animate-gradient-x"></div>
           </div>
 
           {authContextLoading || isPageLoading ? (

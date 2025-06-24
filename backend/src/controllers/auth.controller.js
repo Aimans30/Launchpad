@@ -15,15 +15,15 @@ const supabase = createClient(
  * Redirect to GitHub OAuth login
  */
 exports.githubLogin = (req, res) => {
-  // Use the callback URL from environment variables
-  const redirectUrl = process.env.CALLBACK_URL;
-  console.log('Redirecting to GitHub with callback URL:', redirectUrl);
+  // Use Firebase's auth handler URL as the redirect URI
+  const redirectUrl = 'https://launchpad-4a4ac.firebaseapp.com/__/auth/handler';
+  console.log('Redirecting to GitHub with Firebase auth handler URL:', redirectUrl);
   
   // GitHub OAuth parameters
   const params = {
     client_id: process.env.GITHUB_CLIENT_ID,
     redirect_uri: redirectUrl,
-    scope: 'user:email read:user',
+    scope: 'user:email read:user repo',
     state: crypto.randomBytes(16).toString('hex')
   };
   

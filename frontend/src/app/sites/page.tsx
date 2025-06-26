@@ -148,79 +148,194 @@ export default function SitesPage() {
     
     try {
       setIsUploading(true);
+      setError(null);
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       
       if (!token) {
         throw new Error('Not authenticated');
       }
       
-      const formData = new FormData();
+      // Generate a site ID for this upload
+      const siteId = `site-${Date.now()}`;
       
-      // Add all files to the form data
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
-        // Preserve folder structure by using the relative path
-        const relativePath = file.webkitRelativePath || file.name;
-        formData.append('files', file, relativePath);
+      // Create an array of all files
+      const fileArray = Array.from(selectedFiles);
+      console.log(`Processing ${fileArray.length} files for upload`);
+      
+      // Sort files by size (smallest first) for better upload experience
+      fileArray.sort((a, b) => a.size - b.size);
+      
+      // Chunk files into batches to avoid memory issues
+      const CHUNK_SIZE = 10; // Upload 10 files at a time
+      const chunks = [];
+      
+      for (let i = 0; i < fileArray.length; i += CHUNK_SIZE) {
+        chunks.push(fileArray.slice(i, i + CHUNK_SIZE));
       }
       
-      formData.append('siteName', siteName);
+      console.log(`Split upload into ${chunks.length} chunks`);
       
-      const xhr = new XMLHttpRequest();
       // Ensure we have a valid API URL, defaulting to localhost:3001 if not set
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-      xhr.open('POST', `${apiUrl}/api/sites/upload-folder`);
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      console.log('Sending request to:', `${apiUrl}/api/sites/upload-folder`);
       
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          setUploadProgress(progress);
+      // Track overall progress
+      let totalUploaded = 0;
+      const totalFiles = fileArray.length;
+      
+      // Upload files in chunks
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const chunkNumber = i + 1;
+        
+        console.log(`Uploading chunk ${chunkNumber}/${chunks.length} (${chunk.length} files)`);
+        
+        // Create form data for this chunk
+        const formData = new FormData();
+        formData.append('siteName', siteName);
+        formData.append('siteId', siteId); // Use the same site ID for all chunks
+        formData.append('chunkNumber', String(chunkNumber));
+        formData.append('totalChunks', String(chunks.length));
+        
+        // Add files to the form data
+        for (const file of chunk) {
+          // Preserve folder structure by using the relative path
+          const relativePath = file.webkitRelativePath || file.name;
+          formData.append('files', file, relativePath);
         }
+        
+        // Upload this chunk with retry logic
+        const MAX_RETRIES = 3;
+        let retryCount = 0;
+        let uploadSuccess = false;
+        
+        while (retryCount <= MAX_RETRIES && !uploadSuccess) {
+          try {
+            // If this is a retry, wait before attempting again (exponential backoff)
+            if (retryCount > 0) {
+              const delay = retryCount * 2000; // 2s, 4s, 6s
+              console.log(`Retry ${retryCount}/${MAX_RETRIES} for chunk ${chunkNumber} after ${delay}ms delay...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            
+            const uploadResult = await new Promise<{success: boolean, error?: string}>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('POST', `${apiUrl}/api/sites/upload-folder`);
+              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+              
+              // Set explicit timeouts
+              xhr.timeout = 120000; // 2 minutes timeout
+              
+              xhr.upload.addEventListener('progress', (event) => {
+                if (event.lengthComputable) {
+                  // Calculate overall progress including completed chunks
+                  const chunkProgress = event.loaded / event.total;
+                  const overallProgress = ((i / chunks.length) + (chunkProgress / chunks.length)) * 100;
+                  setUploadProgress(Math.round(overallProgress));
+                }
+              });
+              
+              xhr.onload = () => {
+                if (xhr.status === 200 || xhr.status === 201) {
+                  try {
+                    const response = JSON.parse(xhr.responseText);
+                    resolve({success: true, ...response});
+                  } catch (e) {
+                    reject(new Error('Failed to parse server response'));
+                  }
+                } else {
+                  try {
+                    const response = JSON.parse(xhr.responseText);
+                    reject(new Error(response.error || 'Upload failed'));
+                  } catch (e) {
+                    reject(new Error(`Server error: ${xhr.status}`));
+                  }
+                }
+              };
+              
+              xhr.ontimeout = () => reject(new Error(`Upload timed out after ${xhr.timeout/1000} seconds`));
+              xhr.onerror = () => reject(new Error('Network error during upload'));
+              xhr.send(formData);
+            });
+            
+            // If we get here, upload was successful
+            uploadSuccess = true;
+            totalUploaded += chunk.length;
+            console.log(`Chunk ${chunkNumber}/${chunks.length} uploaded successfully (${totalUploaded}/${totalFiles} files)`);
+            break;
+            
+          } catch (error) {
+            console.error(`Error uploading chunk ${chunkNumber} (attempt ${retryCount+1}/${MAX_RETRIES+1}):`, error);
+            retryCount++;
+            
+            // If we've exhausted all retries, throw the error
+            if (retryCount > MAX_RETRIES) {
+              throw error;
+            }
+          }
+        }
+      }
+      
+      console.log('All chunks uploaded successfully!');
+      
+      // Final step - notify server that all chunks are uploaded
+      const finalResponse = await fetch(`${apiUrl}/api/sites/finalize-upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          siteId,
+          siteName,
+          totalFiles
+        })
       });
       
-      xhr.onload = async () => {
-        console.log('Response status:', xhr.status);
-        console.log('Response headers:', xhr.getAllResponseHeaders());
-        
-        try {
-          console.log('Response text:', xhr.responseText.substring(0, 200) + '...');
-        } catch (e) {
-          console.log('Error reading response text');
-        }
-        
-        if (xhr.status === 201) {
-          const response = JSON.parse(xhr.responseText);
-          console.log('Upload successful, site data:', response);
-          setSites([...sites, response.site]);
-          setShowUploadModal(false);
-          setSiteName('');
-          setSelectedFiles(null);
-          setUploadProgress(0);
-        } else {
-          let errorMessage = 'Upload failed';
-          try {
-            const errorResponse = JSON.parse(xhr.responseText);
-            errorMessage = errorResponse.error || errorMessage;
-            console.error('Upload error details:', errorResponse);
-          } catch (e) {
-            console.error('Error parsing error response:', e);
-          }
-          setError(errorMessage);
-        }
-        setIsUploading(false);
-      };
+      if (!finalResponse.ok) {
+        throw new Error('Failed to finalize site upload');
+      }
       
-      xhr.onerror = () => {
-        setError('Network error occurred during upload');
-        setIsUploading(false);
-      };
+      const finalData = await finalResponse.json();
+      console.log('Upload finalized:', finalData);
       
-      xhr.send(formData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      // Success handling
+      if (finalData.site) {
+        setSites(prev => [...prev, finalData.site]);
+      }
+      
+      // Reset form state
+      setShowUploadModal(false);
+      setSiteName('');
+      setSelectedFiles(null);
+      setUploadProgress(0);
+      
+      // Redirect to sites page
+      window.location.href = '/sites';
+      
       setIsUploading(false);
+      
+    } catch (err) {
+      console.error('Upload error:', err);
+      
+      // Enhanced error handling - check if it's an auth error
+      if (err instanceof Error && 
+          (err.message.includes('authentication') || 
+           err.message.includes('unauthorized') || 
+           err.message.includes('401'))) {
+        // Auth error - show specific message but don't redirect
+        setError('Authentication error. Please try refreshing the page before uploading again.');
+      } else {
+        // Regular error - show message  
+        setError(err instanceof Error ? err.message : 'An error occurred during upload');
+      }
+      
+      // Always update UI state regardless of error type
+      setIsUploading(false);
+      
+      // Show error for longer time
+      setTimeout(() => {
+        setError('');
+      }, 10000); // Show error for 10 seconds
     }
   };
 

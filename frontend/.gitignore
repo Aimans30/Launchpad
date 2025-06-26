@@ -48,6 +48,26 @@ next-env.d.ts
 firebase-config.js
 firebase-config.ts
 firebaseConfig.js
+firebase-credentials.json
+
+# Upload related
+.upload-cache/
+.chunk-cache/
+
+# Temporary files
+.temp/
+tmp/
+*.tmp
+
+# OS specific
+Thumbs.db
+.directory
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
 firebase-service-account.json
 
 # GitHub OAuth

@@ -1,6 +1,6 @@
 # Launchpad
 
-A modern web application deployment platform that allows developers to easily deploy and manage their projects.
+A modern web application deployment platform that allows developers to easily deploy and manage their projects with GitHub integration and static site hosting.
 
 ## Overview
 
@@ -13,7 +13,10 @@ Launchpad is a full-stack application that provides seamless GitHub integration,
 - **Real-time Deployment Status**: Monitor the status of your deployments in real-time
 - **Framework Support**: Deploy applications built with popular frameworks like Next.js, React, Astro, and more
 - **Static Site Hosting**: Upload and host static websites with custom URLs
+- **Folder Upload**: Upload entire folders with structure preserved to Supabase Storage
+- **Chunked Uploads**: Handle large sites with chunked uploads for stability
 - **User Dashboard**: Comprehensive dashboard to view all your projects and deployments
+- **Retry Logic**: Automatic retry for network issues during uploads
 
 ## Tech Stack
 

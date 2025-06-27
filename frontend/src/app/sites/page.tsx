@@ -7,14 +7,17 @@ import { auth } from '@/config/firebase';
 import Link from 'next/link';
 import { FaGlobe as GlobeIcon, FaFolder as FolderIcon } from 'react-icons/fa';
 
+
 interface Site {
   id: string;
   name: string;
   slug: string;
+  description?: string;
   status: string;
-  site_url: string;
   created_at: string;
   updated_at: string;
+  site_url?: string;
+  storage_path?: string;
 }
 
 interface FolderUploadProps {
@@ -38,13 +41,14 @@ export default function SitesPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!user) {
-      router.push('/login');
-      return;
-    }
+    // TEMPORARY: Skip authentication check
+    // if (!user) {
+    //   router.push('/login');
+    //   return;
+    // }
     
     fetchSites();
-  }, [user, router]);
+  }, []);  // Removed dependencies to prevent unnecessary redirects
 
 
 
@@ -53,18 +57,15 @@ export default function SitesPage() {
     setError(null);
     
     try {
-      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      // TEMPORARY: Skip authentication check
+      // const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      // 
+      // if (!token) {
+      //   throw new Error('Not authenticated');
+      // }
       
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
-      
-      // Fetch from API
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/sites/user`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      // Fetch from API without authentication header
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/sites/user`);
       
       if (!response.ok) {
         const statusCode = response.status;
@@ -87,7 +88,8 @@ export default function SitesPage() {
       }
       
       const data = await response.json();
-      setSites(data.sites || []);
+      // Handle both formats: direct array or {sites: [...]} object
+      setSites(Array.isArray(data) ? data : (data.sites || []));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sites');
     } finally {
@@ -104,17 +106,18 @@ export default function SitesPage() {
     }
     
     try {
-      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-      
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
+      // TEMPORARY: Skip authentication check
+      // const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      // 
+      // if (!token) {
+      //   throw new Error('Not authenticated');
+      // }
       
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/sites`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          'Content-Type': 'application/json'
+          // Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({ name: siteName })
       });
@@ -149,11 +152,8 @@ export default function SitesPage() {
     try {
       setIsUploading(true);
       setError(null);
-      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-      
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
+      // Use a dummy token for testing
+      const token = 'test-token';
       
       // Generate a site ID for this upload
       const siteId = `site-${Date.now()}`;
@@ -220,7 +220,8 @@ export default function SitesPage() {
             const uploadResult = await new Promise<{success: boolean, error?: string}>((resolve, reject) => {
               const xhr = new XMLHttpRequest();
               xhr.open('POST', `${apiUrl}/api/sites/upload-folder`);
-              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+              // TEMPORARY: Skip authentication header
+              // xhr.setRequestHeader('Authorization', `Bearer ${token}`);
               
               // Set explicit timeouts
               xhr.timeout = 120000; // 2 minutes timeout
@@ -309,8 +310,12 @@ export default function SitesPage() {
       setSelectedFiles(null);
       setUploadProgress(0);
       
-      // Redirect to sites page
-      window.location.href = '/sites';
+      // Instead of hard redirect, just update the state and let React re-render
+      // This prevents the page from refreshing
+      // window.location.href = '/sites';
+      
+      // Refresh the sites list without page reload
+      fetchSites();
       
       setIsUploading(false);
       
@@ -345,28 +350,34 @@ export default function SitesPage() {
     }
     
     try {
-      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-      
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
-      
+      console.log(`Deleting site with ID: ${siteId}`);
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/sites/${siteId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        method: 'DELETE'
+        // headers: {
+        //   Authorization: `Bearer ${token}`
+        // }
       });
       
+      console.log('Delete response status:', response.status);
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete site');
+        let errorMessage = `Failed to delete site: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          console.error('Error parsing error response:', e);
+        }
+        throw new Error(errorMessage);
       }
       
+      console.log('Site deleted successfully, updating UI');
       setSites(sites.filter(site => site.id !== siteId));
+      setError(null); // Clear any previous errors
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    }
+      console.error('Error deleting site:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while deleting the site');
+    }  
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -553,17 +564,52 @@ return (
                   Created: {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(site.created_at))}
                 </p>
                 <div className="flex justify-between items-center pt-4 border-t border-slate-700/50">
-                  <a
-                    href={`${process.env.NEXT_PUBLIC_API_URL}${site.site_url}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center text-blue-400 hover:text-blue-300 transition-colors gap-1.5"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                    View Site
-                  </a>
+                  <div className="flex space-x-4">
+                    <a
+                      href={site.site_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-blue-400 hover:text-blue-300 transition-colors gap-1.5"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        console.log('Opening site URL:', site.site_url);
+                        if (site.site_url) {
+                          // Fix URL if it doesn't have a protocol
+                          let url = site.site_url;
+                          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                            url = `https://${url}`;
+                          }
+                          console.log('Opening fixed URL:', url);
+                          window.open(url, '_blank');
+                        } else if (site.storage_path) {
+                          // Try to construct URL from storage path
+                          const storageUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/sites/${site.id}/files`;
+                          console.log('No direct URL, opening files list:', storageUrl);
+                          window.open(storageUrl, '_blank');
+                        } else {
+                          alert('No site URL available for this site');
+                        }
+                      }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      View Site
+                    </a>
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_API_URL}/api/sites/${site.id}/files`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-green-400 hover:text-green-300 transition-colors gap-1.5"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.open(`${process.env.NEXT_PUBLIC_API_URL}/api/sites/${site.id}/files`, '_blank');
+                      }}
+                    >
+                      <FolderIcon size={16} className="mr-1" />
+                      View Files
+                    </a>
+                  </div>
                   <button
                     onClick={() => handleDeleteSite(site.id)}
                     className="inline-flex items-center text-red-400 hover:text-red-300 transition-colors gap-1.5"

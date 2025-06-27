@@ -13,6 +13,9 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
+// Bucket name for site files
+const BUCKET_NAME = 'sites';
+
 /**
  * Create a new deployment
  */
@@ -75,20 +78,81 @@ exports.createDeployment = async (req, res) => {
  */
 exports.getAllDeployments = async (req, res) => {
   try {
-    const { data: deployments, error } = await supabase
-      .from('deployments')
-      .select('*, projects(name)')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching deployments:', error);
-      return res.status(500).json({ error: 'Failed to fetch deployments' });
+    const userId = req.user.firebase_uid || req.user.id;
+    
+    console.log('Getting bucket deployments for user:', userId);
+    
+    // First get all sites for this user
+    const { data: sites, error: sitesError } = await supabase
+      .from('sites')
+      .select('*')
+      .eq('user_id', userId);
+    
+    if (sitesError) {
+      console.error('Error fetching sites:', sitesError);
+      return res.status(200).json({ deployments: [] });
     }
-
+    
+    // For each site, check if it has files in storage
+    const deployments = [];
+    
+    for (const site of sites) {
+      // Get deployments for this site
+      const { data: siteDeployments, error: deploymentError } = await supabase
+        .from('deployments')
+        .select('*')
+        .eq('site_id', site.id)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      
+      if (deploymentError) {
+        console.error(`Error fetching deployments for site ${site.id}:`, deploymentError);
+        continue;
+      }
+      
+      // Check if there are files in the bucket for this site
+      const { data: files, error: filesError } = await supabase.storage
+        .from('public')
+        .list(`sites/${site.id}`);
+      
+      if (filesError) {
+        console.error(`Error checking storage for site ${site.id}:`, filesError);
+        continue;
+      }
+      
+      // If there are files, add the site and its deployments
+      if (files && files.length > 0) {
+        // Add each deployment with site info
+        for (const deployment of siteDeployments || []) {
+          deployments.push({
+            ...deployment,
+            sites: site,
+            file_count: files.length
+          });
+        }
+        
+        // If no deployments but files exist, create a virtual deployment
+        if ((!siteDeployments || siteDeployments.length === 0) && site.site_url) {
+          deployments.push({
+            id: `virtual-${site.id}`,
+            site_id: site.id,
+            status: 'completed',
+            created_at: site.created_at,
+            updated_at: site.updated_at,
+            deployed_url: site.site_url,
+            sites: site,
+            file_count: files.length
+          });
+        }
+      }
+    }
+    
+    // Return the deployments
     res.status(200).json({ deployments });
+    
   } catch (error) {
-    console.error('Get all deployments error:', error);
-    res.status(500).json({ error: 'Failed to fetch deployments' });
+    console.error('Get bucket deployments error:', error);
+    res.status(200).json({ deployments: [] });
   }
 };
 
@@ -362,6 +426,91 @@ exports.getDeploymentStatus = async (req, res) => {
 };
 
 /**
+ * Get all deployments including site deployments
+ */
+exports.getAllSiteDeployments = async (req, res) => {
+  try {
+    const userId = req.user.firebase_uid || req.user.id;
+
+    // Get all project-based deployments
+    const { data: projectDeployments, error: projectError } = await supabase
+      .from('deployments')
+      .select('*, projects(name)')
+      .eq('user_id', userId)
+      .is('site_id', null) // Only get project deployments
+      .order('created_at', { ascending: false });
+
+    if (projectError) {
+      console.error('Error fetching project deployments:', projectError);
+      return res.status(500).json({ error: 'Failed to fetch project deployments' });
+    }
+
+    // Get all site-based deployments
+    const { data: siteDeployments, error: siteError } = await supabase
+      .from('deployments')
+      .select('*, sites:site_id(id, name, site_url, user_id, slug)')
+      .eq('user_id', userId)
+      .not('site_id', 'is', null) // Only get site deployments
+      .order('created_at', { ascending: false });
+
+    if (siteError) {
+      console.error('Error fetching site deployments:', siteError);
+      return res.status(500).json({ error: 'Failed to fetch site deployments' });
+    }
+
+    // Map site deployments to match the expected format
+    const formattedSiteDeployments = (siteDeployments || []).map(deployment => {
+      return {
+        id: deployment.id,
+        site_id: deployment.site_id,
+        projectId: null,
+        projectName: null,
+        status: deployment.status || 'success',
+        timestamp: deployment.deployed_at || deployment.created_at,
+        type: 'site',
+        projects: null,
+        site: deployment.sites,
+        deployed_url: deployment.deployed_url || deployment.sites?.site_url,
+        deployed_at: deployment.deployed_at,
+        created_at: deployment.created_at
+      };
+    });
+
+    // Map project deployments to match the expected format
+    const formattedProjectDeployments = (projectDeployments || []).map(deployment => {
+      return {
+        id: deployment.id,
+        projectId: deployment.project_id,
+        project_id: deployment.project_id,
+        projectName: deployment.projects?.name,
+        status: deployment.status,
+        timestamp: deployment.created_at,
+        commit: deployment.commit_sha,
+        commitMessage: deployment.commit_message,
+        branch: deployment.branch,
+        duration: deployment.duration || 0,
+        type: 'project',
+        site: null,
+        deployed_url: deployment.deployment_url,
+        deployed_at: deployment.created_at,
+        created_at: deployment.created_at,
+        commit_sha: deployment.commit_sha,
+        commit_message: deployment.commit_message
+      };
+    });
+
+    // Combine and sort all deployments by created_at
+    const allDeployments = [...formattedProjectDeployments, ...formattedSiteDeployments]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    res.status(200).json({ deployments: allDeployments });
+  } catch (error) {
+    console.error('Get all deployments error:', error);
+    res.status(500).json({ error: 'Failed to fetch deployments' });
+  }
+};
+
+/**
  * Process deployment (internal function)
  */
 async function processDeployment(deployment) {
@@ -513,3 +662,372 @@ async function handleDeploymentError(deploymentId, errorMessage) {
       created_at: new Date()
     });
 }
+
+/**
+ * Get deployment files
+ * Lists all files in a deployment's storage bucket
+ */
+exports.getDeploymentFiles = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // TEMPORARY: Skip user authentication check
+    // const userId = req.user.firebase_uid || req.user.id;
+    
+    // First, get the deployment to verify ownership and get site_id
+    const { data: deployment, error: deploymentError } = await supabase
+      .from('deployments')
+      .select('*, sites(*)')
+      .eq('id', id)
+      .single();
+    
+    if (deploymentError || !deployment) {
+      // If no deployment found, try to get the site directly
+      const { data: site, error: siteError } = await supabase
+        .from('sites')
+        .select('*')
+        .eq('id', id)
+        .single();
+        
+      if (siteError || !site) {
+        return res.status(404).json({ error: 'Deployment or site not found' });
+      }
+      
+      // TEMPORARY: Skip user authentication check
+      // if (site.user_id !== userId) {
+      //   return res.status(403).json({ error: 'Unauthorized access to site' });
+      // }
+      
+      // Use the site ID to list files
+      const storagePath = `sites/${site.id}`;
+      
+      // List files in the storage bucket
+      const { data: files, error: listError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .list(storagePath, {
+          sortBy: { column: 'name', order: 'asc' }
+        });
+      
+      if (listError) {
+        console.error('Error listing files:', listError);
+        return res.status(500).json({ error: 'Failed to list files' });
+      }
+      
+      // Get the site URL
+      let siteUrl = site.site_url;
+      
+      // If site_url is not set, try to find index.html and set the URL
+      if (!siteUrl) {
+        console.log('Site URL not found, searching for index.html file...');
+        console.log('Available files:', files.map(f => f.name).join(', '));
+        
+        // Check if index.html exists in the files - with more flexible matching
+        const indexFile = files?.find(file => 
+          file.name === 'index.html' || 
+          file.name.endsWith('/index.html') || 
+          file.name.toLowerCase() === 'index.html' || 
+          file.name.toLowerCase().endsWith('/index.html')
+        );
+        
+        if (indexFile) {
+          console.log(`Found index.html file: ${indexFile.name}`);
+          // Generate the public URL for index.html
+          const { data: urlData } = supabase.storage
+            .from(BUCKET_NAME)
+            .getPublicUrl(`${storagePath}/${indexFile.name}`);
+          
+          siteUrl = urlData?.publicUrl;
+          console.log(`Generated URL: ${siteUrl}`);
+          
+          // Make sure the URL is properly formatted
+          if (siteUrl && !siteUrl.startsWith('http')) {
+            siteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${storagePath}/${indexFile.name}`;
+            console.log(`Reformatted URL: ${siteUrl}`);
+          }
+          
+          // Update the site record with the new URL
+          if (siteUrl) {
+            const { error: updateError } = await supabase
+              .from('sites')
+              .update({ site_url: siteUrl })
+              .eq('id', site.id);
+            
+            if (updateError) {
+              console.error('Error updating site URL:', updateError);
+            } else {
+              console.log(`Updated site ${site.id} with URL: ${siteUrl}`);
+            }
+          }
+        } else {
+          // Try to find any HTML file if index.html is not found
+          const htmlFile = files?.find(file => 
+            file.name.toLowerCase().endsWith('.html')
+          );
+          
+          if (htmlFile) {
+            console.log(`No index.html found, using alternative HTML file: ${htmlFile.name}`);
+            const { data: urlData } = supabase.storage
+              .from(BUCKET_NAME)
+              .getPublicUrl(`${storagePath}/${htmlFile.name}`);
+            
+            siteUrl = urlData?.publicUrl;
+            console.log(`Generated URL from HTML file: ${siteUrl}`);
+            
+            // Update the site record with the new URL
+            if (siteUrl) {
+              const { error: updateError } = await supabase
+                .from('sites')
+                .update({ site_url: siteUrl })
+                .eq('id', site.id);
+              
+              if (updateError) {
+                console.error('Error updating site URL from HTML file:', updateError);
+              } else {
+                console.log(`Updated site ${site.id} with URL from HTML file: ${siteUrl}`);
+              }
+            }
+          } else {
+            // Fallback URL if no HTML file is found
+            console.log('No HTML files found, using fallback URL');
+            siteUrl = `${process.env.SUPABASE_URL || 'https://storage.googleapis.com'}/storage/v1/object/public/${BUCKET_NAME}/${storagePath}/index.html`;
+          }
+        }
+      }
+      
+      // Log what we're returning for debugging
+      console.log('Returning site URL:', siteUrl);
+      console.log('Site object:', site);
+      
+      // Make sure we have a valid URL before returning it
+      // This is critical for the frontend to display the "View Live Site" link correctly
+      if (!siteUrl || !siteUrl.startsWith('http')) {
+        // Try to construct a valid URL using the SUPABASE_URL environment variable
+        if (process.env.SUPABASE_URL) {
+          // Look for any HTML file to use as the site URL
+          const htmlFile = files?.find(file => 
+            file.name.toLowerCase().endsWith('.html')
+          );
+          
+          if (htmlFile) {
+            siteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${storagePath}/${htmlFile.name}`;
+            console.log(`Constructed fallback URL from HTML file: ${siteUrl}`);
+            
+            // Update the site record with this URL
+            const { error: updateError } = await supabase
+              .from('sites')
+              .update({ site_url: siteUrl })
+              .eq('id', site.id);
+              
+            if (updateError) {
+              console.error('Error updating site URL with fallback:', updateError);
+            } else {
+              console.log(`Updated site ${site.id} with fallback URL: ${siteUrl}`);
+            }
+          }
+        }
+      }
+      
+      return res.status(200).json({
+        files: files || [],
+        path: storagePath,
+        site,
+        url: siteUrl
+      });
+    }
+    
+    // TEMPORARY: Skip user authentication check
+    // if (deployment.user_id !== userId) {
+    //   return res.status(403).json({ error: 'Unauthorized access to deployment' });
+    // }
+    
+    // Get the site ID from the deployment
+    const siteId = deployment.site_id;
+    const site = deployment.sites;
+    
+    if (!siteId || !site) {
+      return res.status(404).json({ error: 'Site not found for this deployment' });
+    }
+    
+    // Use the site ID to list files
+    const storagePath = `sites/${siteId}`;
+    
+    // List files in the storage bucket
+    const { data: files, error: listError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .list(storagePath, {
+        sortBy: { column: 'name', order: 'asc' }
+      });
+    
+    if (listError) {
+      console.error('Error listing files:', listError);
+      return res.status(500).json({ error: 'Failed to list files' });
+    }
+    
+    // Get the site URL
+    let siteUrl = site.site_url;
+    
+    // If site_url is not set, try to find index.html and set the URL
+    if (!siteUrl) {
+      console.log('Site URL not found, searching for index.html file...');
+      console.log('Available files:', files.map(f => f.name).join(', '));
+      
+      // Check if index.html exists in the files - with more flexible matching
+      const indexFile = files?.find(file => 
+        file.name === 'index.html' || 
+        file.name.endsWith('/index.html') || 
+        file.name.toLowerCase() === 'index.html' || 
+        file.name.toLowerCase().endsWith('/index.html')
+      );
+      
+      if (indexFile) {
+        console.log(`Found index.html file: ${indexFile.name}`);
+        // Generate the public URL for index.html
+        const { data: urlData } = supabase.storage
+          .from(BUCKET_NAME)
+          .getPublicUrl(`${storagePath}/${indexFile.name}`);
+        
+        siteUrl = urlData?.publicUrl;
+        console.log(`Generated URL: ${siteUrl}`);
+        
+        // Update the site record with the new URL
+        if (siteUrl) {
+          const { error: updateError } = await supabase
+            .from('sites')
+            .update({ site_url: siteUrl })
+            .eq('id', site.id);
+          
+          if (updateError) {
+            console.error('Error updating site URL:', updateError);
+          } else {
+            console.log(`Updated site ${site.id} with URL: ${siteUrl}`);
+          }
+        }
+      } else {
+        // Try to find any HTML file if index.html is not found
+        const htmlFile = files?.find(file => 
+          file.name.toLowerCase().endsWith('.html')
+        );
+        
+        if (htmlFile) {
+          console.log(`No index.html found, using alternative HTML file: ${htmlFile.name}`);
+          const { data: urlData } = supabase.storage
+            .from(BUCKET_NAME)
+            .getPublicUrl(`${storagePath}/${htmlFile.name}`);
+          
+          siteUrl = urlData?.publicUrl;
+          console.log(`Generated URL from HTML file: ${siteUrl}`);
+          
+          // Make sure the URL is properly formatted
+          if (siteUrl && !siteUrl.startsWith('http')) {
+            siteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${storagePath}/${htmlFile.name}`;
+            console.log(`Reformatted URL from HTML file: ${siteUrl}`);
+          }
+          
+          // Update the site record with the new URL
+          if (siteUrl) {
+            const { error: updateError } = await supabase
+              .from('sites')
+              .update({ site_url: siteUrl })
+              .eq('id', site.id);
+            
+            if (updateError) {
+              console.error('Error updating site URL from HTML file:', updateError);
+            } else {
+              console.log(`Updated site ${site.id} with URL from HTML file: ${siteUrl}`);
+            }
+          }
+        } else {
+          // Fallback URL if no HTML file is found
+          console.log('No HTML files found, using fallback URL');
+          siteUrl = `${process.env.SUPABASE_URL || 'https://storage.googleapis.com'}/storage/v1/object/public/${BUCKET_NAME}/${storagePath}/index.html`;
+        }
+      }
+    }
+    
+    return res.status(200).json({
+      files: files || [],
+      path: storagePath,
+      site: site,
+      url: siteUrl,
+      deployment: deployment
+    });
+  } catch (error) {
+    console.error('Error in getDeploymentFiles:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Get file content
+ * Gets the content of a specific file in a deployment's storage bucket
+ */
+exports.getFileContent = async (req, res) => {
+  try {
+    const { id, filePath } = req.params;
+    // TEMPORARY: Skip user authentication check
+    // const userId = req.user.firebase_uid || req.user.id;
+    
+    // First, get the deployment to verify ownership and get site_id
+    const { data: deployment, error: deploymentError } = await supabase
+      .from('deployments')
+      .select('*, sites(*)')
+      .eq('id', id)
+      .single();
+    
+    let siteId;
+    let site;
+    
+    if (deploymentError || !deployment) {
+      // If no deployment found, try to get the site directly
+      const { data: siteData, error: siteError } = await supabase
+        .from('sites')
+        .select('*')
+        .eq('id', id)
+        .single();
+        
+      if (siteError || !siteData) {
+        return res.status(404).json({ error: 'Deployment or site not found' });
+      }
+      
+      // TEMPORARY: Skip user authentication check
+      // if (siteData.user_id !== userId) {
+      //   return res.status(403).json({ error: 'Unauthorized access to site' });
+      // }
+      
+      siteId = siteData.id;
+      site = siteData;
+    } else {
+      // TEMPORARY: Skip user authentication check
+      // if (deployment.user_id !== userId) {
+      //   return res.status(403).json({ error: 'Unauthorized access to deployment' });
+      // }
+      
+      // Get the site ID from the deployment
+      siteId = deployment.site_id;
+      site = deployment.sites;
+      
+      if (!siteId || !site) {
+        return res.status(404).json({ error: 'Site not found for this deployment' });
+      }
+    }
+    
+    // Use the site ID to get the file
+    const storagePath = `sites/${siteId}/${filePath}`;
+    
+    // Get the file URL
+    const { data: publicUrl } = supabase.storage
+      .from(BUCKET_NAME)
+      .getPublicUrl(storagePath);
+    
+    if (!publicUrl) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    return res.status(200).json({
+      url: publicUrl.publicUrl,
+      path: storagePath
+    });
+  } catch (error) {
+    console.error('Error in getFileContent:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};

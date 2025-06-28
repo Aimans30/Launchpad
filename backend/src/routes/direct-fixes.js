@@ -2,12 +2,16 @@
  * Direct route fixes for problematic endpoints
  * This module exports a function that adds direct route handlers to an Express app
  */
+const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
 module.exports = function addDirectRoutes(app) {
   console.log('Adding direct route handlers for problematic endpoints');
+  
+  // Log all registered routes for debugging
+  console.log('Current routes:', app._router ? app._router.stack.length : 'No routes');
   
   // Ensure temp directory exists
   const tempDir = path.join(__dirname, '../../uploads/temp');
@@ -546,12 +550,17 @@ module.exports = function addDirectRoutes(app) {
       // Add URLs for each site
       const sitesWithUrls = userSites.map(site => {
         const bucketName = 'sites';
-        const siteFolderPath = `${site.id}/`;
-        const siteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucketName}/${siteFolderPath}index.html`;
+        // Use display_id for the path if available, otherwise fall back to id
+        const folderIdToUse = site.display_id || site.id;
+        const siteFolderPath = `${folderIdToUse}/`;
+        // Use our proxy endpoint instead of direct Supabase URL to ensure proper content type
+        const siteUrl = `${process.env.API_URL || 'http://localhost:3001'}/api/sites/${folderIdToUse}/view`;
         
         return {
           ...site,
-          url: siteUrl
+          url: siteUrl,
+          // Add display_id back to the response if it wasn't already there
+          display_id: site.display_id || (site.id.includes('site-') ? site.id : `site-${Date.now()}`)
         };
       });
       
@@ -565,6 +574,230 @@ module.exports = function addDirectRoutes(app) {
     }
   });
   
+  // Add endpoint for viewing site files
+  app.get('/api/sites/:siteId/files', middleware.auth.authMiddleware, async (req, res) => {
+    console.log('[DIRECT FIX] Site files endpoint accessed for site:', req.params.siteId);
+    
+    try {
+      // Initialize Supabase client
+      const { createClient } = require('@supabase/supabase-js');
+      const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
+      );
+      
+      const { siteId } = req.params;
+      const bucketName = 'sites';
+      
+      // Find if this is a UUID or a display_id
+      const isUuid = siteId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+      
+      // If it's a UUID, we need to get the display_id from the database
+      let folderIdToUse = siteId;
+      
+      if (isUuid) {
+        console.log('Looking up display_id for UUID:', siteId);
+        const { data: siteData } = await supabase
+          .from('sites')
+          .select('display_id')
+          .eq('id', siteId)
+          .maybeSingle();
+          
+        if (siteData && siteData.display_id) {
+          folderIdToUse = siteData.display_id;
+          console.log('Found display_id:', folderIdToUse);
+        }
+      }
+      
+      // List files in the site folder
+      const { data: files, error } = await supabase.storage
+        .from(bucketName)
+        .list(folderIdToUse, {
+          limit: 100,
+          offset: 0,
+          sortBy: { column: 'name', order: 'asc' }
+        });
+      
+      if (error) {
+        console.error('Error listing files:', error);
+        return res.status(500).json({
+          status: 'error',
+          message: 'Failed to list files',
+          details: error.message
+        });
+      }
+      
+      // Generate URLs for each file
+      const filesWithUrls = files.map(file => {
+        const fileUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucketName}/${folderIdToUse}/${file.name}`;
+        return {
+          ...file,
+          url: fileUrl
+        };
+      });
+      
+      // Return HTML page with file list
+      res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Files for site ${folderIdToUse}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; padding: 2rem; max-width: 1200px; margin: 0 auto; }
+            h1 { color: #333; }
+            .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+            .file-item { padding: 1rem; border: 1px solid #eee; border-radius: 6px; }
+            .file-item:hover { background: #f9f9f9; }
+            a { color: #0070f3; text-decoration: none; }
+            a:hover { text-decoration: underline; }
+            .back-link { margin-bottom: 2rem; display: inline-block; }
+            .empty-state { text-align: center; padding: 3rem 0; color: #666; }
+            .file-size { color: #666; font-size: 0.9rem; }
+            header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+          </style>
+        </head>
+        <body>
+          <header>
+            <h1>Files for site ${folderIdToUse}</h1>
+            <a href="${process.env.API_URL || 'http://localhost:3001'}/api/sites/${folderIdToUse}/view" target="_blank" class="view-site">View Live Site</a>
+          </header>
+          
+          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/sites" class="back-link">← Back to sites</a>
+          
+          ${filesWithUrls.length === 0 ? 
+            '<div class="empty-state">No files found in this site folder.</div>' :
+            `<div class="file-list">
+              ${filesWithUrls.map(file => `
+                <div class="file-item">
+                  <div><a href="${process.env.SUPABASE_URL}/storage/v1/object/public/${bucketName}/${folderIdToUse}/${file.name}" target="_blank">${file.name}</a></div>
+                  <div class="file-size">${(file.metadata?.size/1024).toFixed(1)} KB</div>
+                </div>
+              `).join('')}
+            </div>`
+          }
+        </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error('[DIRECT FIX] Error in site files handler:', error);
+      return res.status(500).json({
+        status: 'error',
+        message: 'An error occurred while listing files',
+        details: error.message
+      });
+    }
+  });
+  
+  // Serve static files from the public directory
+  app.use('/public', express.static(path.join(__dirname, '../../public')));
+  
+  // Add endpoint for site viewing with iframe wrapper
+  app.get('/api/sites/:siteId/view', async (req, res) => {
+    console.log('[DIRECT FIX] Site view accessed for site:', req.params.siteId);
+    
+    try {
+      const { siteId } = req.params;
+      
+      // Serve the static HTML viewer with the site ID as a query parameter
+      const viewerPath = path.join(__dirname, '../../public/site-viewer.html');
+      
+      // Check if the viewer file exists
+      if (!fs.existsSync(viewerPath)) {
+        console.error('Site viewer HTML file not found at:', viewerPath);
+        return res.status(404).send('Site viewer not found');
+      }
+      
+      // Read the HTML file
+      const html = fs.readFileSync(viewerPath, 'utf8');
+      
+      // Replace placeholders with actual values
+      const modifiedHtml = html
+        .replace('const siteId = urlParams.get(\'siteId\');', `const siteId = '${siteId}';`)
+        .replace('const supabaseUrl = urlParams.get(\'supabaseUrl\');', `const supabaseUrl = '${process.env.SUPABASE_URL}';`);
+      
+      // Send the HTML with the correct content type
+      res.setHeader('Content-Type', 'text/html');
+      res.send(modifiedHtml);
+    } catch (error) {
+      console.error('[DIRECT FIX] Error in site view:', error);
+      return res.status(500).send(`Error: ${error.message}`);
+    }
+  });
+  
+  // Add endpoint for direct file content access with proper content type
+  app.get('/api/sites/:siteId/raw/:filename(*)', async (req, res) => {
+    console.log('[DIRECT FIX] Raw file access for site:', req.params.siteId, 'file:', req.params.filename);
+    
+    try {
+      // Initialize Supabase client
+      const { createClient } = require('@supabase/supabase-js');
+      const axios = require('axios');
+      const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
+      );
+      
+      const { siteId, filename } = req.params;
+      const bucketName = 'sites';
+      
+      // Security check to prevent directory traversal
+      if (filename.includes('../') || filename.includes('..\\')) {
+        return res.status(403).json({ error: 'Invalid file path' });
+      }
+      
+      // Construct full path to the file in storage
+      const fullPath = `${siteId}/${filename}`;
+      console.log(`Fetching raw file: ${fullPath}`);
+      
+      // Get the public URL for the file
+      const { data: urlData } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(fullPath);
+      
+      if (!urlData || !urlData.publicUrl) {
+        return res.status(404).send('File not found');
+      }
+      
+      // Fetch the file content using axios
+      const response = await axios.get(urlData.publicUrl, { responseType: 'arraybuffer' });
+      
+      // Set appropriate content type based on file extension
+      const ext = filename.split('.').pop().toLowerCase();
+      const contentTypes = {
+        'html': 'text/html',
+        'htm': 'text/html',
+        'css': 'text/css',
+        'js': 'application/javascript',
+        'json': 'application/json',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'svg': 'image/svg+xml',
+        'ico': 'image/x-icon',
+        'txt': 'text/plain',
+        'pdf': 'application/pdf',
+        'woff': 'font/woff',
+        'woff2': 'font/woff2',
+        'ttf': 'font/ttf',
+        'eot': 'application/vnd.ms-fontobject',
+        'otf': 'font/otf',
+        'xml': 'application/xml',
+        'webp': 'image/webp',
+      };
+      
+      const contentType = contentTypes[ext] || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      
+      // Send the file content
+      return res.send(response.data);
+    } catch (error) {
+      console.error('[DIRECT FIX] Error in raw file access:', error);
+      return res.status(500).send(`Error: ${error.message}`);
+    }
+  });
   console.log('Direct route handlers added successfully');
   return app;
 };

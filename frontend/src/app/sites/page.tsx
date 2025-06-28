@@ -18,6 +18,9 @@ interface Site {
   updated_at: string;
   site_url?: string;
   storage_path?: string;
+  url?: string;
+  display_id?: string;
+  user_id?: string;
 }
 
 interface FolderUploadProps {
@@ -572,14 +575,12 @@ return (
                       className="inline-flex items-center text-blue-400 hover:text-blue-300 transition-colors gap-1.5"
                       onClick={(e) => {
                         e.preventDefault();
-                        console.log('Opening site URL:', site.site_url);
-                        if (site.site_url) {
-                          // Fix URL if it doesn't have a protocol
-                          let url = site.site_url;
+                        if (site.url) {
+                          let url = site.url;
                           if (!url.startsWith('http://') && !url.startsWith('https://')) {
                             url = `https://${url}`;
                           }
-                          console.log('Opening fixed URL:', url);
+                          console.log('Opening site URL:', url);
                           window.open(url, '_blank');
                         } else if (site.storage_path) {
                           // Try to construct URL from storage path
@@ -587,7 +588,11 @@ return (
                           console.log('No direct URL, opening files list:', storageUrl);
                           window.open(storageUrl, '_blank');
                         } else {
-                          alert('No site URL available for this site');
+                          // Fallback to the files view which can navigate to index.html
+                          const idToUse = site.display_id || site.id;
+                          const filesUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/sites/${idToUse}/files`;
+                          console.log('No URL available, redirecting to files list:', filesUrl);
+                          window.open(filesUrl, '_blank');
                         }
                       }}
                     >

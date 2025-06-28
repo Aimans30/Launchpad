@@ -14,11 +14,11 @@ if (process.env.NODE_ENV !== 'test') {
     // Initialize Firebase Admin with service account credentials
     const serviceAccountPath = path.resolve(__dirname, '../firebase-service-account.json');
     console.log('Loading Firebase service account from:', serviceAccountPath);
-    
+
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccountPath)
     });
-    
+
     console.log('Firebase Admin SDK initialized successfully');
   } catch (error) {
     console.error('Firebase Admin SDK initialization error:', error.message);
@@ -46,6 +46,28 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Set Origin-Agent-Cluster header globally for all routes to avoid browser warnings
+app.use((req, res, next) => {
+  res.setHeader('Origin-Agent-Cluster', '?0');
+  next();
+});
+
+// Middleware to add permissive CSP headers for site and API routes
+// Must be defined BEFORE the routes that need these headers
+app.use([
+  '/api/sites/:siteId/raw',
+  '/api/sites/:siteId/proxy',
+  '/api/sites/:siteId/proxy/*'
+], (req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob:;"
+  );
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Origin-Agent-Cluster', '?0');
+  next();
+});
+
 // Define port for the server
 const PORT = process.env.PORT || 3001;
 
@@ -60,25 +82,9 @@ http.globalAgent.maxSockets = 100;
 http.globalAgent.keepAlive = true;
 
 // Middleware
-// Enhanced CORS configuration
+// CORS setup - allow all origins for this internal tool
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow any origin ending with .launchpad.dev
-    // or localhost/127.0.0.1 or the specific frontend URL
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      process.env.FRONTEND_URL,
-    ];
-    
-    if (!origin || allowedOrigins.some(allowed => origin.includes(allowed))) {
-      callback(null, true);
-    } else {
-      console.log(`Origin ${origin} not allowed by CORS policy`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -94,9 +100,11 @@ app.use((req, res, next) => {
 });
 
 // Set security headers but allow CORS
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: false // disable default CSP
+  })
+);
 
 app.use(morgan('dev'));
 // Increase JSON and URL-encoded payload limits
@@ -125,10 +133,520 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Serve static files from the public directory
+app.use('/public', express.static(path.join(__dirname, '../public')));
+
+// Create a full site proxy to handle entire website content
+const axios = require('axios');
+const mime = require('mime-types');
+
+// Create a full proxy for all site files
+app.get('/api/sites/:siteId/proxy/*', async (req, res) => {
+  console.log('[PROXY] Request for:', req.params);
+
+  try {
+    const { siteId } = req.params;
+    const bucketName = 'sites';
+
+    // Extract the file path from the URL (everything after /proxy/)
+    let filePath = req.params[0] || 'index.html';
+
+    // Filter out any query parameters
+    filePath = filePath.split('?')[0];
+
+    console.log('[PROXY] File path:', filePath);
+
+    // Get Supabase client
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
+    );
+
+    // First, check if the file exists by trying to download it
+    const { data: fileData, error: fileError } = await supabase.storage
+      .from(bucketName)
+      .download(`${siteId}/${filePath}`);
+
+    if (fileError || !fileData) {
+      // If file not found, check if this is a React app route and serve index.html
+      if (!filePath.includes('.')) {
+        console.log('[PROXY] Looks like a route in a SPA, serving index.html');
+        const { data: indexData, error: indexError } = await supabase.storage
+          .from(bucketName)
+          .download(`${siteId}/index.html`);
+
+        if (indexError || !indexData) {
+          return res.status(404).send('Site index.html not found');
+        }
+
+        // Convert Blob to string
+        const indexContent = await indexData.text();
+
+        // Set content type header for HTML
+        res.setHeader('Content-Type', 'text/html');
+        return res.send(indexContent);
+      }
+
+      console.error(`[PROXY] File not found: ${siteId}/${filePath}`, fileError);
+      return res.status(404).send(`File not found: ${filePath}`);
+    }
+
+    // Determine the appropriate content type based on file extension
+    const ext = filePath.split('.').pop().toLowerCase();
+
+    // Force specific MIME types for web files to ensure proper rendering
+    const mimeTypes = {
+      'html': 'text/html',
+      'htm': 'text/html',
+      'css': 'text/css',
+      'js': 'application/javascript',
+      'json': 'application/json',
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'gif': 'image/gif',
+      'svg': 'image/svg+xml',
+      'ico': 'image/x-icon',
+      'woff': 'font/woff',
+      'woff2': 'font/woff2',
+      'ttf': 'font/ttf',
+      'eot': 'application/vnd.ms-fontobject'
+    };
+
+    const contentType = mimeTypes[ext] || mime.lookup(filePath) || 'application/octet-stream';
+    console.log('[PROXY] Content type for', filePath, ':', contentType);
+
+    // Set content type header
+    res.setHeader('Content-Type', contentType);
+
+    // Add CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    // For text-based content, convert Blob to string
+    if (['text/html', 'text/css', 'application/javascript', 'application/json', 'text/plain'].includes(contentType)) {
+      const textContent = await fileData.text();
+      return res.send(textContent);
+    } else {
+      // For binary content, convert Blob to Buffer
+      const arrayBuffer = await fileData.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      return res.send(buffer);
+    }
+  } catch (error) {
+    console.error('[PROXY] Error:', error);
+    return res.status(500).send(`Error: ${error.message}`);
+  }
+});
+
+// Full static site viewer - using iframe approach for reliable rendering
+app.get('/api/sites/:siteId/view', async (req, res) => {
+  console.log('[DIRECT] Site view accessed for site:', req.params.siteId);
+
+  try {
+    const { siteId } = req.params;
+    const bucketName = 'sites';
+
+    // Get Supabase client
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
+    );
+
+    // First check if site exists
+    const { data: listData, error: listError } = await supabase.storage
+      .from(bucketName)
+      .list(siteId, { limit: 1 });
+
+    if (listError || !listData || listData.length === 0) {
+      return res.status(404).send(`Site with ID ${siteId} not found`);
+    }
+
+    // Send an appropriate HTML page with our self-contained viewer
+    res.setHeader('Content-Type', 'text/html');
+
+    // Create a self-contained viewer that doesn't rely on external CSS/JS files
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Site Preview - ${siteId}</title>
+        <style>
+          body, html { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+          .site-header {
+            background: #f8f9fa; 
+            padding: 10px 20px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          }
+          .site-header h3 { margin: 0; }
+          .site-header a { text-decoration: none; color: #0070f3; margin-left: 10px; }
+          .content-container { height: calc(100vh - 58px); width: 100%; overflow: hidden; position: relative; }
+          iframe { border: none; width: 100%; height: 100%; min-height: 600px; }
+          .error-message { padding: 20px; text-align: center; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px; }
+          .loading-indicator { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+          .loading-indicator:after { content: ''; display: block; width: 40px; height: 40px; margin: 10px auto; border-radius: 50%; border: 5px solid #f3f3f3; border-top: 5px solid #0070f3; animation: spin 1s linear infinite; }
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div class="site-header">
+          <h3>Preview: ${siteId}</h3>
+          <div>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/sites">Back to Sites</a>
+            <a href="/api/sites/${siteId}/files" target="_blank">View Files</a>
+          </div>
+        </div>
+        <div class="content-container">
+          <div class="loading-indicator">Loading site preview...</div>
+          <iframe src="/api/sites/${siteId}/raw" id="siteFrame" sandbox="allow-scripts allow-forms allow-popups allow-modals allow-orientation-lock"></iframe>
+        </div>
+        <script>
+          // Monitor for iframe load events
+          const iframe = document.getElementById('siteFrame');
+          const loadingIndicator = document.querySelector('.loading-indicator');
+          
+          iframe.onload = function() {
+            // Hide loading indicator when frame loads
+            loadingIndicator.style.display = 'none';
+          };
+          
+          iframe.onerror = function() {
+            // Show error message if frame fails to load
+            loadingIndicator.innerHTML = '<div class="error-message"><h3>Error Loading Site</h3><p>Could not load the site preview. The site may not have been properly uploaded or the index.html file is missing.</p></div>';
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    // Send the self-contained viewer
+    res.send(fullHtml);
+  } catch (error) {
+    console.error('[DIRECT] Error in site view:', error);
+    return res.status(500).send(`Error: ${error.message}`);
+  }
+});
+
+// Raw site endpoint - serves the site HTML directly with no header
+app.get('/api/sites/:siteId/raw', async (req, res) => {
+  console.log('[RAW] Raw site access for site:', req.params.siteId);
+
+  try {
+    let { siteId } = req.params;
+    const bucketName = 'sites';
+    
+    // Format siteId correctly (if it doesn't have 'site-' prefix, add it)
+    if (!siteId.startsWith('site-')) {
+      siteId = `site-${siteId}`;
+    }
+
+    // Get Supabase client
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
+    );
+
+    // First check if site exists
+    const { data: listData, error: listError } = await supabase.storage
+      .from(bucketName)
+      .list(siteId);
+
+    if (listError || !listData || listData.length === 0) {
+      return res.status(404).send(`<html><body><h1>Site Not Found</h1><p>Site with ID ${siteId} not found</p></body></html>`);
+    }
+
+    // Check for index.html
+    const hasIndex = listData.some(item => item.name === 'index.html');
+    if (!hasIndex) {
+      return res.status(404).send(`<html><body><h1>Missing index.html</h1><p>Site ${siteId} does not have an index.html file</p></body></html>`);
+    }
+
+    // Download the index.html file
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .download(`${siteId}/index.html`);
+
+    if (error || !data) {
+      return res.status(404).send(`<html><body><h1>Error</h1><p>Could not download index.html</p></body></html>`);
+    }
+
+    // Read the HTML content
+    const htmlContent = await data.text();
+
+    // Set content type to HTML (CSP and CORS headers are set by middleware)
+    res.setHeader('Content-Type', 'text/html');
+
+    const isReactApp = htmlContent.includes('manifest.json') ||
+      htmlContent.includes('/static/js/') ||
+      htmlContent.includes('/static/css/');
+
+    // Get site structure to verify what we have
+    const { data: siteFiles } = await supabase.storage
+      .from(bucketName)
+      .list(siteId);
+
+    // Log what files we have in storage
+    console.log('[RAW] Files in storage for site', siteId, ':', siteFiles?.map(f => f.name).join(', '));
+
+    // Check for static folder
+    let hasStaticFolder = false;
+    const staticFolderCheck = await supabase.storage
+      .from(bucketName)
+      .list(`${siteId}/static`, { limit: 1 });
+
+    if (staticFolderCheck.data && staticFolderCheck.data.length > 0) {
+      hasStaticFolder = true;
+    }
+
+    console.log('[RAW] Has static folder:', hasStaticFolder);
+
+    // If we have a static folder, check its structure
+    if (hasStaticFolder) {
+      const staticFolderContents = await supabase.storage
+        .from(bucketName)
+        .list(`${siteId}/static`);
+
+      console.log('[RAW] Static folder contents:', staticFolderContents.data?.map(f => f.name).join(', '));
+    }
+
+    let modifiedHtml = htmlContent;
+
+    if (isReactApp) {
+      console.log('[RAW] Detected React app, modifying URLs');
+      
+      // Add BASE element to ensure all relative URLs are resolved correctly
+      if (!modifiedHtml.includes('<base ')) {
+        modifiedHtml = modifiedHtml.replace('<head>', '<head>\n<base href="/api/sites/' + siteId + '/proxy/" />');
+      }
+      
+      // Add script loading attributes to help with execution
+      modifiedHtml = modifiedHtml.replace(/<script/g, '<script defer crossorigin="anonymous"');
+      
+      // Fix paths to static/css and static/js assets - these are actually in the root
+      // Map /static/css/main.hash.css to just /main.hash.css through our proxy
+      modifiedHtml = modifiedHtml.replace(/src=[\"\']\/static\/(?:js|css)\/([^\"\']+)[\"\']/g, 
+        'src="/api/sites/' + siteId + '/proxy/$1"');
+      modifiedHtml = modifiedHtml.replace(/href=[\"\']\/static\/(?:js|css)\/([^\"\']+)[\"\']/g, 
+        'href="/api/sites/' + siteId + '/proxy/$1"');
+      
+      // Fix absolute paths to root assets
+      modifiedHtml = modifiedHtml.replace(/src=[\"\']\/(main\.[^\"\'\/]+)[\"\']/g, 
+        'src="/api/sites/' + siteId + '/proxy/$1"');
+      modifiedHtml = modifiedHtml.replace(/href=[\"\']\/(main\.[^\"\'\/]+)[\"\']/g, 
+        'href="/api/sites/' + siteId + '/proxy/$1"');
+      modifiedHtml = modifiedHtml.replace(/src=[\"\']\/(\d+\.[^\"\'\/]+\.chunk\.js)[\"\']/g, 
+        'src="/api/sites/' + siteId + '/proxy/$1"');
+      
+      // Fix relative paths (no leading slash)
+      modifiedHtml = modifiedHtml.replace(/src=[\"\'](?!\/|http|\/api)(main\.[^\"\'\/]+)[\"\']/g, 
+        'src="/api/sites/' + siteId + '/proxy/$1"');
+      modifiedHtml = modifiedHtml.replace(/href=[\"\'](?!\/|http|\/api)(main\.[^\"\'\/]+)[\"\']/g, 
+        'href="/api/sites/' + siteId + '/proxy/$1"');
+      modifiedHtml = modifiedHtml.replace(/src=[\"\'](?!\/|http|\/api)(\d+\.[^\"\'\/]+\.chunk\.js)[\"\']/g, 
+        'src="/api/sites/' + siteId + '/proxy/$1"');
+      
+      // Special handling for manifest.json and favicon.ico
+      modifiedHtml = modifiedHtml.replace(/href=[\"\']\/(manifest\.json)[\"\']/g, 
+        'href="/api/sites/' + siteId + '/proxy/$1"');
+      modifiedHtml = modifiedHtml.replace(/href=[\"\']\/(favicon\.ico)[\"\']/g, 
+        'href="/api/sites/' + siteId + '/proxy/$1"');
+      
+      // Add debugging indicator for easier troubleshooting
+      modifiedHtml = modifiedHtml.replace('</head>', 
+        '<script>console.log("[LAUNCHPAD VIEWER] Site loaded through proxy");</script></head>');
+      
+      console.log('[RAW] Modified React app asset paths');
+    } else {
+      // For other sites, add a base tag
+      modifiedHtml = modifiedHtml.replace('<head>', `<head>\n<base href="/api/sites/${siteId}/proxy/" />`);
+    }
+
+    // Send the HTML content
+    return res.send(modifiedHtml);
+  } catch (error) {
+    console.error('[RAW] Error serving raw site:', error);
+    return res.status(500).send(`<html><body><h1>Error</h1><p>${error.message}</p></body></html>`);
+  }
+});
+
+// Proxy endpoint to serve site assets with correct MIME types
+app.get('/api/sites/:siteId/proxy/*', async (req, res) => {
+  let { siteId } = req.params;
+  // The 0 at the end ensures we get everything after '/proxy/' including additional slashes
+  const assetPath = req.params[0] || '';
+  
+  // Format siteId correctly (if it doesn't have 'site-' prefix, add it)
+  if (!siteId.startsWith('site-')) {
+    siteId = `site-${siteId}`;
+  }
+
+  console.log(`[PROXY] Serving asset for site ${siteId}: ${assetPath}`);
+
+  try {
+    const bucketName = 'sites';
+    const filePath = `${siteId}/${assetPath}`;
+
+    // Get Supabase client
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
+    );
+
+    // Return directly for OPTIONS requests (preflight)
+    // Headers like CSP and CORS are set by middleware
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+
+    // Check if this is a request for a file or directory
+    // If it has a file extension, treat as file; otherwise could be SPA route
+    const hasExtension = assetPath.includes('.') && !assetPath.endsWith('/');
+
+    if (hasExtension) {
+      // This is a file request, try to download it directly
+      console.log(`[PROXY] Fetching file: ${filePath}`);
+
+      // Determine content type based on file extension
+      const mime = require('mime-types');
+
+      // Force correct MIME types for key web assets regardless of what mime-types says
+      let contentType;
+      if (assetPath.endsWith('.js')) {
+        contentType = 'application/javascript';
+      } else if (assetPath.endsWith('.css')) {
+        contentType = 'text/css';
+      } else if (assetPath.endsWith('.json')) {
+        contentType = 'application/json';
+      } else if (assetPath.endsWith('.html') || assetPath.endsWith('.htm')) {
+        contentType = 'text/html';
+      } else {
+        contentType = mime.lookup(assetPath) || 'application/octet-stream';
+      }
+
+      console.log(`[PROXY] Content type determined: ${contentType}`);
+      res.setHeader('Content-Type', contentType);
+
+      // Now check if the file exists and serve it
+      try {
+        // Try to serve the exact path first
+        let actualFilePath = `${siteId}/${assetPath}`;
+        let triedPaths = [actualFilePath];
+        let { data, error } = await supabase.storage
+          .from(bucketName)
+          .download(actualFilePath);
+
+        // If not found, try just the filename from the root
+        if (error || !data) {
+          if (assetPath.includes('/')) {
+            const filename = assetPath.split('/').pop();
+            const rootFilePath = `${siteId}/${filename}`;
+            triedPaths.push(rootFilePath);
+            console.log(`[PROXY] Asset not found at ${actualFilePath}, trying root: ${rootFilePath}`);
+            const rootResult = await supabase.storage
+              .from(bucketName)
+              .download(rootFilePath);
+            if (!rootResult.error && rootResult.data) {
+              data = rootResult.data;
+              error = null;
+              actualFilePath = rootFilePath;
+            }
+          }
+        }
+
+        // Log all attempted paths
+        console.log(`[PROXY] Asset request for: ${assetPath}`);
+        console.log(`[PROXY] Tried paths:`, triedPaths.join(' | '));
+        if (error) {
+          // List all available files for debugging
+          const { data: availableFiles } = await supabase.storage
+            .from(bucketName)
+            .list(siteId);
+          const availableNames = availableFiles ? availableFiles.map(f => f.name).join(', ') : 'none';
+          console.error(`[PROXY] Download error:`, error);
+          console.error(`[PROXY] Available files in ${siteId}: ${availableNames}`);
+          if (/\.(js|css|json|xml|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|eot)$/i.test(assetPath)) {
+            return res.status(404).end(); // Empty response for assets to prevent MIME errors
+          } else {
+            return res.status(404).send(`File not found: ${assetPath}`);
+          }
+        }
+
+        if (!data) {
+          if (/\.(js|css|json|xml|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|eot)$/i.test(assetPath)) {
+            return res.status(404).end();
+          } else {
+            return res.status(404).send(`Empty file: ${assetPath}`);
+          }
+        }
+
+        // Determine if we should return as text or binary
+        const isTextBased = contentType.startsWith('text/') ||
+          contentType === 'application/javascript' ||
+          contentType === 'application/json' ||
+          contentType.includes('xml');
+
+        // Serve file with proper content type
+        if (isTextBased) {
+          const textContent = await data.text();
+          return res.send(textContent);
+        } else {
+          // Binary file
+          const buffer = await data.arrayBuffer();
+          return res.send(Buffer.from(buffer));
+        }
+
+        // No need to redeclare isTextBased again below; just use the existing logic above.
+
+      } catch (error) {
+        console.error(`[PROXY] Error fetching ${filePath}:`, error);
+        if (/\.(js|css|json|xml)$/i.test(assetPath)) {
+          return res.status(404).end();
+        } else {
+          return res.status(500).send(`Server error: ${error.message}`);
+        }
+      }
+    } else {
+      // This is likely an SPA route - serve index.html if no extension
+      console.log(`[PROXY] Serving SPA route - fallback to index.html for: ${assetPath}`);
+
+      // Serve main index.html for SPA routes
+      try {
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .download(`${siteId}/index.html`);
+
+        if (error || !data) {
+          return res.status(404).send(`Site not found or index.html missing for: ${siteId}`);
+        }
+
+        const htmlContent = await data.text();
+        res.setHeader('Content-Type', 'text/html');
+        return res.send(htmlContent);
+      } catch (error) {
+        console.error(`[PROXY] Error serving SPA fallback:`, error);
+        return res.status(500).send(`Server error: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    console.error(`[PROXY] Global error:`, error);
+    return res.status(500).send(`Server error: ${error.message}`);
+  }
+});
+
 // Debug route to list all registered routes
 app.get('/api/debug/routes', (req, res) => {
   const routes = [];
-  
+
   // Function to extract routes from a layer
   const extractRoutes = (layer) => {
     if (layer.route) {
@@ -148,10 +666,10 @@ app.get('/api/debug/routes', (req, res) => {
       });
     }
   };
-  
+
   // Extract routes from app
   app._router.stack.forEach(extractRoutes);
-  
+
   res.status(200).json({
     count: routes.length,
     routes: routes.sort((a, b) => a.path.localeCompare(b.path))
@@ -163,7 +681,7 @@ try {
   console.log('Loading auth routes...');
   const authRoutes = require('./routes/auth.routes');
   console.log('Auth routes required successfully');
-  
+
   // Log available routes
   console.log('Available auth routes:');
   authRoutes.stack?.forEach(route => {
@@ -171,10 +689,10 @@ try {
       console.log(`${route.route.path} - ${Object.keys(route.route.methods).join(', ')}`);
     }
   });
-  
+
   app.use('/api/auth', authRoutes);
   console.log('Auth routes mounted at /api/auth');
-  
+
   // Load custom OAuth routes
   const oauthRoutes = require('./routes/oauth.routes');
   app.use('/api/auth', oauthRoutes);
@@ -211,9 +729,9 @@ try {
   const siteRoutes = require('./routes/site.routes');
   app.use('/api/sites', siteRoutes);
   console.log('Site routes loaded');
-  
+
   // Route was moved to site.routes.js
-  
+
 } catch (error) {
   console.log('Site routes not loaded:', error.message);
 }
@@ -247,7 +765,7 @@ const storage = multer.diskStorage({
 
 const folderUpload = multer({
   storage,
-  limits: { 
+  limits: {
     fileSize: 50 * 1024 * 1024, // 50MB per file
     files: 500, // Max 500 files
     fieldSize: 50 * 1024 * 1024 // 50MB field size limit
@@ -257,15 +775,15 @@ const folderUpload = multer({
 app.post('/api/sites/upload-folder', folderUpload.array('files'), (req, res) => {
   console.log('[DIRECT] Upload folder endpoint accessed');
   console.log('Files received:', req.files ? req.files.length : 0);
-  
+
   try {
     const files = req.files;
     const { siteName, siteId } = req.body;
-    
+
     if (!files || files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
-    
+
     return res.status(200).json({
       success: true,
       message: 'Files received successfully',
@@ -288,13 +806,13 @@ app.get('/api/sites/user', (req, res) => {
 app.post('/api/sites/finalize-upload', async (req, res) => {
   console.log('[DIRECT] Finalize upload endpoint accessed');
   console.log('Request body:', req.body);
-  
+
   try {
     // Extract user information from token if present
     let userId = null;
     let userEmail = null;
     let username = null;
-    
+
     if (req.headers.authorization) {
       try {
         const admin = require('firebase-admin');
@@ -302,14 +820,14 @@ app.post('/api/sites/finalize-upload', async (req, res) => {
         const decodedToken = await admin.auth().verifyIdToken(token);
         userId = decodedToken.uid;
         userEmail = decodedToken.email || null;
-        
+
         // Get user details from Supabase
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
           .eq('firebase_uid', userId)
           .single();
-        
+
         if (!userError && userData) {
           username = userData.github_username || userEmail;
         }
@@ -317,32 +835,32 @@ app.post('/api/sites/finalize-upload', async (req, res) => {
         console.error('Authentication error:', authError);
       }
     }
-    
+
     const { siteId, siteName, totalFiles } = req.body;
-    
+
     if (!siteId) {
       return res.status(400).json({ error: 'Missing siteId' });
     }
-    
+
     const bucketName = 'sites';
     const siteFolderPath = `${siteId}/`;
-    
+
     // Create a site record in the database with only the columns that exist in the schema
     const currentTime = new Date().toISOString();
-    
+
     // Generate a proper UUID for the site rather than using the string format
     const { v4: uuidv4 } = require('uuid');
-    
+
     // Declare the UUID variable to use for this site
     let properUuid;
-    
+
     // Get any existing data for this site - files were already uploaded to storage with siteId
     const { data: existingData } = await supabase
       .from('sites')
       .select('*')
       .eq('display_id', siteId)
       .maybeSingle();
-      
+
     if (existingData) {
       console.log(`Found existing site record for ${siteId}: ${existingData.id}`);
       properUuid = existingData.id; // Use the existing UUID if the site already exists
@@ -350,7 +868,7 @@ app.post('/api/sites/finalize-upload', async (req, res) => {
       properUuid = uuidv4(); // Generate a new UUID if no existing record
       console.log(`Converting site ID ${siteId} to proper UUID format: ${properUuid}`);
     }
-    
+
     // Use only columns that exist in the schema with proper data types
     const siteData = {
       id: properUuid, // Use a proper UUID format
@@ -361,26 +879,26 @@ app.post('/api/sites/finalize-upload', async (req, res) => {
       updated_at: currentTime,
       status: 'active'
     };
-    
+
     // Insert the site record into the database
     const { data: insertedSite, error: insertError } = await supabase
       .from('sites')
       .insert([siteData])
       .select()
       .single();
-    
+
     if (insertError) {
       console.error('Error inserting site record:', insertError);
     } else {
       console.log('Site record inserted:', insertedSite);
     }
-    
+
     // Public URL for the site
     const siteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucketName}/${siteFolderPath}index.html`;
-    
+
     // Check if we have a working site record - either from the database or our data object
     const siteRecord = insertedSite || siteData;
-    
+
     // Even if database insertion failed, we can still return success since files are uploaded
     // This prevents frontend authentication issues
     return res.status(201).json({
@@ -456,7 +974,7 @@ app.use('/sites', express.static(SITES_DIR));
 app.get('/sites/:siteSlug/*', (req, res) => {
   const siteSlug = req.params.siteSlug;
   const indexPath = path.join(SITES_DIR, siteSlug, 'index.html');
-  
+
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {

@@ -39,6 +39,8 @@ interface Site {
   updated_at: string;
   user_id: string;
   version?: number;
+  url?: string;
+  display_id?: string;
 }
 
 export default function SiteDetailPage() {

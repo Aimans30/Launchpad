@@ -382,9 +382,9 @@ app.get('/api/sites/:siteId/raw', async (req, res) => {
     // Read the HTML content
     const htmlContent = await data.text();
 
-    // Set content type to HTML (CSP and CORS headers are set by middleware)
+    // Set content type to HTML
     res.setHeader('Content-Type', 'text/html');
-
+    
     const isReactApp = htmlContent.includes('manifest.json') ||
       htmlContent.includes('/static/js/') ||
       htmlContent.includes('/static/css/');
@@ -433,9 +433,9 @@ app.get('/api/sites/:siteId/raw', async (req, res) => {
       
       // Fix paths to static/css and static/js assets - these are actually in the root
       // Map /static/css/main.hash.css to just /main.hash.css through our proxy
-      modifiedHtml = modifiedHtml.replace(/src=[\"\']\/static\/(?:js|css)\/([^\"\']+)[\"\']/g, 
+      modifiedHtml = modifiedHtml.replace(/src=[\"\']\/static\/(?:js|css)\/([^\"']+)[\"']/g, 
         'src="/api/sites/' + siteId + '/proxy/$1"');
-      modifiedHtml = modifiedHtml.replace(/href=[\"\']\/static\/(?:js|css)\/([^\"\']+)[\"\']/g, 
+      modifiedHtml = modifiedHtml.replace(/href=[\"\']\/static\/(?:js|css)\/([^\"']+)[\"']/g, 
         'href="/api/sites/' + siteId + '/proxy/$1"');
       
       // Fix absolute paths to root assets
@@ -466,8 +466,139 @@ app.get('/api/sites/:siteId/raw', async (req, res) => {
       
       console.log('[RAW] Modified React app asset paths');
     } else {
-      // For other sites, add a base tag
-      modifiedHtml = modifiedHtml.replace('<head>', `<head>\n<base href="/api/sites/${siteId}/proxy/" />`);
+      // Check if it's a Vite app
+      const isViteApp = htmlContent.includes('/assets/index-') || 
+        htmlContent.match(/\/assets\/[^\/]+\.[a-zA-Z0-9]+\-[a-zA-Z0-9]+\.(js|css)/);
+
+      if (isViteApp) {
+        console.log('[RAW] Detected Vite app, modifying URLs');
+        
+        // Add BASE element to ensure all relative URLs are resolved correctly
+        if (!modifiedHtml.includes('<base ')) {
+          modifiedHtml = modifiedHtml.replace('<head>', `<head>\n<base href="/api/sites/${siteId}/proxy/" />`);
+        }
+        
+        // For Vite builds, we need a more comprehensive approach to handle all asset references
+        
+        // Get the list of actual files in the bucket to use for replacement
+        const fileList = siteFiles.map(f => f.name);
+        console.log('[RAW] Available files for replacement:', fileList);
+        
+        // Create a map of file extensions to actual files
+        const fileMap = {};
+        fileList.forEach(file => {
+          const ext = file.split('.').pop().toLowerCase();
+          if (!fileMap[ext]) {
+            fileMap[ext] = [];
+          }
+          fileMap[ext].push(file);
+        });
+        
+        console.log('[RAW] File map by extension:', fileMap);
+        
+        // DIRECT APPROACH: Replace asset references with direct links to the actual files
+        // This is the most reliable approach for Vite builds
+        
+        // For CSS files
+        if (fileMap['css'] && fileMap['css'].length > 0) {
+          const cssFile = fileMap['css'][0]; // Use the first CSS file
+          console.log(`[RAW] Using CSS file: ${cssFile}`);
+          
+          // Replace all CSS references (both absolute and relative paths)
+          modifiedHtml = modifiedHtml.replace(/href=[\"\'](\/?assets\/[^\"']+\.css)[\"']/g, 
+            `href="/api/sites/${siteId}/proxy/${cssFile}"`);
+          modifiedHtml = modifiedHtml.replace(/href=[\"\']\/([^\"'\/]+\.css)[\"']/g, 
+            `href="/api/sites/${siteId}/proxy/${cssFile}"`);
+        }
+        
+        // For JS files
+        if (fileMap['js'] && fileMap['js'].length > 0) {
+          const jsFile = fileMap['js'][0]; // Use the first JS file
+          console.log(`[RAW] Using JS file: ${jsFile}`);
+          
+          // Replace all JS references (both absolute and relative paths)
+          modifiedHtml = modifiedHtml.replace(/src=[\"\'](\/?assets\/[^\"']+\.js)[\"']/g, 
+            `src="/api/sites/${siteId}/proxy/${jsFile}"`);
+          modifiedHtml = modifiedHtml.replace(/src=[\"\']\/([^\"'\/]+\.js)[\"']/g, 
+            `src="/api/sites/${siteId}/proxy/${jsFile}"`);
+        }
+        
+        // For images and other assets
+        const imgExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'];
+        imgExts.forEach(ext => {
+          if (fileMap[ext] && fileMap[ext].length > 0) {
+            fileMap[ext].forEach(imgFile => {
+              // Extract the base name without extension
+              const baseName = imgFile.split('.')[0];
+              const baseNameWithoutHash = baseName.split('-')[0];
+              
+              console.log(`[RAW] Found image: ${imgFile}, basename: ${baseName}, clean name: ${baseNameWithoutHash}`);
+              
+              // Replace references to this specific image
+              const imgRegex = new RegExp(`src=[\"\'](\/?assets\/)?${baseNameWithoutHash}[^\"']*\.${ext}[\"']`, 'g');
+              modifiedHtml = modifiedHtml.replace(imgRegex, `src="/api/sites/${siteId}/proxy/${imgFile}"`);
+              
+              // Also handle absolute paths
+              const absImgRegex = new RegExp(`src=[\"\']\/[^\"'\/]*${baseNameWithoutHash}[^\"']*\.${ext}[\"']`, 'g');
+              modifiedHtml = modifiedHtml.replace(absImgRegex, `src="/api/sites/${siteId}/proxy/${imgFile}"`);
+            });
+            
+            // Add a special style tag to help with image references in CSS
+            const imageStyles = fileMap[ext].map(img => {
+              const baseName = img.split('.')[0];
+              const baseNameWithoutHash = baseName.split('-')[0];
+              return `.${baseNameWithoutHash}, #${baseNameWithoutHash}, [src*="${baseNameWithoutHash}"] { background-image: url("/api/sites/${siteId}/proxy/${img}") !important; }\n`;
+            }).join('');
+            
+            modifiedHtml = modifiedHtml.replace('</head>', `<style>/* Image path fixes */\n${imageStyles}</style>\n</head>`);
+          }
+        });
+        
+        // Add a script to help debug and fix any remaining asset references
+        const debugScript = `
+        <script>
+          console.log('[LAUNCHPAD VIEWER] Vite site loaded through proxy');
+          // Fix any remaining asset references dynamically
+          document.addEventListener('DOMContentLoaded', function() {
+            // Fix image sources that might be broken
+            document.querySelectorAll('img[src^="/assets/"]').forEach(img => {
+              const origSrc = img.getAttribute('src');
+              const fileName = origSrc.split('/').pop();
+              img.setAttribute('src', '/api/sites/${siteId}/proxy/' + fileName);
+              console.log('Fixed image path:', origSrc, '->', '/api/sites/${siteId}/proxy/' + fileName);
+            });
+            
+            // Fix background images in inline styles
+            document.querySelectorAll('[style*="background"]').forEach(el => {
+              const style = el.getAttribute('style');
+              if (style && style.includes('/assets/')) {
+                const newStyle = style.replace(/\/assets\/([^\)]+)/g, '/api/sites/${siteId}/proxy/$1');
+                el.setAttribute('style', newStyle);
+                console.log('Fixed background style:', style, '->', newStyle);
+              }
+            });
+          });
+        </script>
+        `;
+        
+        modifiedHtml = modifiedHtml.replace('</head>', `${debugScript}\n</head>`);
+        
+        // Also handle direct references to the hashed files in the root
+        modifiedHtml = modifiedHtml.replace(/src=[\"\']\/([^\"'\/]+\-[a-zA-Z0-9]+\.(js|css))[\"']/g, 
+          `src="/api/sites/${siteId}/proxy/$1"`);
+        modifiedHtml = modifiedHtml.replace(/href=[\"\']\/([^\"'\/]+\-[a-zA-Z0-9]+\.(js|css))[\"']/g, 
+          `href="/api/sites/${siteId}/proxy/$1"`);
+          
+          
+        // Add debugging indicator
+        modifiedHtml = modifiedHtml.replace('</head>', 
+          '<script>console.log("[LAUNCHPAD VIEWER] Vite site loaded through proxy");</script></head>');
+          
+        console.log('[RAW] Modified Vite app asset paths');
+      } else {
+        // For other sites, add a base tag
+        modifiedHtml = modifiedHtml.replace('<head>', `<head>\n<base href="/api/sites/${siteId}/proxy/" />`);
+      }
     }
 
     // Send the HTML content
@@ -482,7 +613,12 @@ app.get('/api/sites/:siteId/raw', async (req, res) => {
 app.get('/api/sites/:siteId/proxy/*', async (req, res) => {
   let { siteId } = req.params;
   // The 0 at the end ensures we get everything after '/proxy/' including additional slashes
-  const assetPath = req.params[0] || '';
+  // Clean up the asset path by removing any leading slashes
+  let assetPath = req.params[0] || '';
+  // Remove leading slash if present
+  if (assetPath.startsWith('/')) {
+    assetPath = assetPath.substring(1);
+  }
   
   // Format siteId correctly (if it doesn't have 'site-' prefix, add it)
   if (!siteId.startsWith('site-')) {
@@ -529,6 +665,14 @@ app.get('/api/sites/:siteId/proxy/*', async (req, res) => {
         contentType = 'application/json';
       } else if (assetPath.endsWith('.html') || assetPath.endsWith('.htm')) {
         contentType = 'text/html';
+      } else if (assetPath.endsWith('.svg')) {
+        contentType = 'image/svg+xml';
+      } else if (assetPath.endsWith('.png')) {
+        contentType = 'image/png';
+      } else if (assetPath.endsWith('.jpg') || assetPath.endsWith('.jpeg')) {
+        contentType = 'image/jpeg';
+      } else if (assetPath.endsWith('.ico')) {
+        contentType = 'image/x-icon';
       } else {
         contentType = mime.lookup(assetPath) || 'application/octet-stream';
       }
@@ -538,16 +682,144 @@ app.get('/api/sites/:siteId/proxy/*', async (req, res) => {
 
       // Now check if the file exists and serve it
       try {
-        // Try to serve the exact path first
-        let actualFilePath = `${siteId}/${assetPath}`;
-        let triedPaths = [actualFilePath];
-        let { data, error } = await supabase.storage
+        // Get a list of all files in the site bucket to help with matching
+        const { data: siteFiles } = await supabase.storage
           .from(bucketName)
-          .download(actualFilePath);
+          .list(siteId);
+          
+        const availableFiles = siteFiles?.map(f => f.name) || [];
+        console.log(`[PROXY] Files available in bucket for ${siteId}:`, availableFiles.join(', '));
+        
+        // Create a map of file extensions to actual files
+        const fileMap = {};
+        availableFiles.forEach(file => {
+          const ext = file.split('.').pop().toLowerCase();
+          if (!fileMap[ext]) {
+            fileMap[ext] = [];
+          }
+          fileMap[ext].push(file);
+        });
+        
+        // Extract the file extension from the requested path
+        const requestedExt = assetPath.split('.').pop().toLowerCase();
+        console.log(`[PROXY] Requested file extension: ${requestedExt}`);
+        
+        // Extract just the filename without path
+        const filenameWithoutPath = assetPath.split('/').pop();
+        console.log(`[PROXY] Requested filename: ${filenameWithoutPath}`);
+        
+        // Try multiple paths in order of likelihood
+        const pathsToTry = [
+          // 1. Exact path as requested
+          `${siteId}/${assetPath}`,
+          
+          // 2. Just the filename in the root (for Vite assets)
+          `${siteId}/${filenameWithoutPath}`,
+          
+          // 3. If it's an assets/ path, try without the assets/ prefix
+          ...(assetPath.startsWith('assets/') ? [`${siteId}/${assetPath.substring('assets/'.length)}`] : []),
+          
+          // 4. Try any file with the same extension (last resort)
+          ...(fileMap[requestedExt] ? fileMap[requestedExt].map(file => `${siteId}/${file}`) : [])
+        ];
+        
+        console.log(`[PROXY] Will try these paths in order:`, pathsToTry);
+        
+        // Try each path in order until we find the file
+        let data = null;
+        let error = null;
+        let actualFilePath = null;
+        
+        for (const path of pathsToTry) {
+          console.log(`[PROXY] Trying path: ${path}`);
+          const result = await supabase.storage
+            .from(bucketName)
+            .download(path);
+            
+          if (!result.error && result.data) {
+            data = result.data;
+            error = null;
+            actualFilePath = path;
+            console.log(`[PROXY] Found file at: ${path}`);
+            break;
+          }
+        }
+        
+        // If we've tried all paths and still haven't found the file
+        if (!data || error) {
+          console.log(`[PROXY] File not found after trying all paths: ${assetPath}`);
+          console.log(`[PROXY] Tried paths:`, pathsToTry);
+          
+          // Last resort: try to find any file with the same extension
+          const fileExt = assetPath.split('.').pop().toLowerCase();
+          const { data: allFiles } = await supabase.storage
+            .from(bucketName)
+            .list(siteId);
+            
+          const matchingFiles = allFiles?.filter(f => f.name.endsWith(`.${fileExt}`)) || [];
+          
+          if (matchingFiles.length > 0) {
+            // Use the first matching file by extension
+            const matchedFile = matchingFiles[0].name;
+            const matchedPath = `${siteId}/${matchedFile}`;
+            console.log(`[PROXY] Last resort: trying file with matching extension: ${matchedPath}`);
+            
+            const lastResult = await supabase.storage
+              .from(bucketName)
+              .download(matchedPath);
+              
+            if (!lastResult.error && lastResult.data) {
+              data = lastResult.data;
+              error = null;
+              actualFilePath = matchedPath;
+              console.log(`[PROXY] Found file with matching extension: ${matchedPath}`);
+            } else {
+              return res.status(404).send(`File not found: ${assetPath}`);
+            }
+          } else {
+            return res.status(404).send(`File not found: ${assetPath}`);
+          }
+        }
 
-        // If not found, try just the filename from the root
+        // If not found, try different options based on the file type and structure
         if (error || !data) {
-          if (assetPath.includes('/')) {
+          // Check if this might be a Vite asset with a special path
+          if (isViteAsset || assetPath.match(/index-[a-zA-Z0-9]+\.(js|css)$/)) {
+            // Try looking in the dist/ directory
+            const distPath = `${siteId}/dist/${assetPath}`;
+            triedPaths.push(distPath);
+            console.log(`[PROXY] Checking for Vite asset in dist: ${distPath}`);
+            
+            const distResult = await supabase.storage
+              .from(bucketName)
+              .download(distPath);
+              
+            if (!distResult.error && distResult.data) {
+              data = distResult.data;
+              error = null;
+              actualFilePath = distPath;
+              console.log(`[PROXY] Found in dist directory: ${distPath}`);
+            } else {
+              // Try looking for the asset in dist/assets/
+              const distAssetsPath = `${siteId}/dist/assets/${assetPath.split('/').pop()}`;
+              triedPaths.push(distAssetsPath);
+              console.log(`[PROXY] Checking in dist/assets: ${distAssetsPath}`);
+              
+              const assetsResult = await supabase.storage
+                .from(bucketName)
+                .download(distAssetsPath);
+                
+              if (!assetsResult.error && assetsResult.data) {
+                data = assetsResult.data;
+                error = null;
+                actualFilePath = distAssetsPath;
+                console.log(`[PROXY] Found in dist/assets directory: ${distAssetsPath}`);
+              }
+            }
+          }
+          
+          // Standard React/CRA fallback - try just the filename from the root
+          if ((error || !data) && assetPath.includes('/')) {
             const filename = assetPath.split('/').pop();
             const rootFilePath = `${siteId}/${filename}`;
             triedPaths.push(rootFilePath);
@@ -559,6 +831,7 @@ app.get('/api/sites/:siteId/proxy/*', async (req, res) => {
               data = rootResult.data;
               error = null;
               actualFilePath = rootFilePath;
+              console.log(`[PROXY] Found in root directory: ${rootFilePath}`);
             }
           }
         }

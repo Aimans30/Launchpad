@@ -12,6 +12,7 @@
   "description": "Backend service for website deployment platform",
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
+    "adm-zip": "^0.5.10",
     "axios": "^1.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
